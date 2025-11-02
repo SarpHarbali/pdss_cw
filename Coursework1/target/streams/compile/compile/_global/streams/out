@@ -1,0 +1,7 @@
+[0m[[0m[31merror[0m] [0m[0m/Users/sarpharbali/Documents/Edinburgh/Data Science at Scale/CW1/Coursework1/src/main/scala/pdss/engine/ExecutionEngine.scala:22:18: value partitionBy is not a member of org.apache.spark.rdd.RDD[(Int, V)][0m
+[0m[[0m[31merror[0m] [0m[0m    val L = left.partitionBy(p).persist()[0m
+[0m[[0m[31merror[0m] [0m[0m                 ^[0m
+[0m[[0m[31merror[0m] [0m[0m/Users/sarpharbali/Documents/Edinburgh/Data Science at Scale/CW1/Coursework1/src/main/scala/pdss/engine/ExecutionEngine.scala:23:19: value partitionBy is not a member of org.apache.spark.rdd.RDD[(Int, V)][0m
+[0m[[0m[31merror[0m] [0m[0m    val R = right.partitionBy(p).persist()[0m
+[0m[[0m[31merror[0m] [0m[0m                  ^[0m
+[0m[[0m[31merror[0m] [0m[0mtwo errors found[0m

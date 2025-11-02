@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ScalaCompilerConfiguration">
+    <option name="separateProdTestSources" value="true" />
+    <profile name="sbt 1" modules="Coursework1,Lab3,data-science-at-scale,data-science-at-scale.main,data-science-at-scale.test" />
+    <profile name="sbt 2" modules="Coursework1.main,Coursework1.test,Lab3.main,Lab3.test">
+      <option name="deprecationWarnings" value="true" />
+    </profile>
+  </component>
+</project>
