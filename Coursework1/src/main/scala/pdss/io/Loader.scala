@@ -1,7 +1,7 @@
 package pdss.io
 
 import org.apache.spark.SparkContext
-import pdss.core.{SparseMatrix, DistVector}
+import pdss.core.{SparseMatrix, DistVector, DenseMatrix}
 import scala.util.Try
 
 object Loader {
@@ -83,5 +83,29 @@ object Loader {
 
     val len = parsed.map(_._1).max().toLong + 1
     DistVector(parsed, length = len)
+  }
+
+
+
+    def loadDenseMatrixRows(sc: SparkContext, path: String): DenseMatrix = {
+    val lines = sc.textFile(path)
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .zipWithIndex()
+
+    val rows = lines.map { case (line, rowIdx) =>
+      val parts = line.split(",")
+      val arr = new Array[Double](parts.length)
+      var k = 0
+      while (k < parts.length) { 
+        arr(k) = parts(k).toDouble
+        k += 1 
+      }
+      (rowIdx.toInt, arr)
+    }
+
+    val numRows = lines.count()
+    val numCols = rows.first()._2.length.toLong
+    DenseMatrix(rows, numRows, numCols)
   }
 }

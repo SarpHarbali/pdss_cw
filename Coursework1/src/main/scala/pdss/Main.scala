@@ -24,17 +24,14 @@ object Main extends App{
   // val y = ExecutionEngine.spmv(A, x)
 
   // --- Example SpMM using two sparse matrices (COO on both)
-  val B = Loader.loadCSVToCOO(sc, "src/main/data/sparse_matrix_normal2.csv")
-  val C = ExecutionEngine.spmm(A, B)
+  // val B = Loader.loadCSVToCOO(sc, "src/main/data/sparse_matrix_normal2.csv")
+  val B = Loader.loadDenseMatrixRows(sc, "src/main/data/dense_matrix_normal2.csv")
+
+    // Sparse × Dense
+  val C = ExecutionEngine.spmm_dense(A, B)
 
 
-
-
-  println("C = A * B (first 10 nonzeros):")
-  C.take(10).foreach { case ((i, j), v) => println(s"($i,$j) -> $v") }
-
-  C.map { case ((i, j), v) => s"$i,$j,$v" }
-    .saveAsTextFile("results/spmm_output")
+  C.map { case (i, row) => s"$i,${row.mkString(",")}" }.saveAsTextFile("results/spmm_dense_output")
 
   println("✅ Results written to results/spmv_output/ and results/spmm_output/")
 

@@ -2,7 +2,7 @@ package pdss.engine
 
 import org.apache.spark.HashPartitioner
 import org.apache.spark.rdd.RDD
-import pdss.core.{DistVector, SparseMatrix}
+import pdss.core.{DistVector, SparseMatrix, DenseMatrix}
 import org.apache.spark.SparkContext._
 
 import scala.reflect.ClassTag
@@ -48,4 +48,33 @@ object ExecutionEngine {
     val products = joined.map { case (_, ((i, vA), (j, vB))) => ((i, j), vA * vB) }
     products.reduceByKey(_ + _)                  // C(i,j) = sum_k A(i,k)*B(k,j)
   }
+
+
+
+
+  def spmm_dense(A: SparseMatrix, B: DenseMatrix): RDD[(Int, Array[Double])] = {
+  val AkeyedByJ: RDD[(Int, (Int, Double))] = A.entries.map { case (i, j, v) => (j, (i, v)) }
+  val joined = AkeyedByJ.join(B.rows)  // <-- fix here
+
+  val partials: RDD[(Int, Array[Double])] = joined.map { case (_, ((i, v), rowB)) =>
+    val out = new Array[Double](rowB.length)
+    var k = 0
+    while (k < rowB.length) { out(k) = rowB(k) * v; k += 1 }
+    (i, out)
+  }
+
+  partials.reduceByKey { (a, b) =>
+    val len = math.max(a.length, b.length)
+    val res = new Array[Double](len)
+    var k = 0
+    while (k < len) {
+      val av = if (k < a.length) a(k) else 0.0
+      val bv = if (k < b.length) b(k) else 0.0
+      res(k) = av + bv
+      k += 1
+    }
+    res
+  }
+}
+
 }
