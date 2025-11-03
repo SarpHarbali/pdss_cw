@@ -10,6 +10,10 @@ case class SparseMatrix(entries: RDD[(Int, Int, Double)],
 /** Distributed vector as (j, x_j) pairs. Works for dense or sparse. */
 case class DistVector(values: RDD[(Int, Double)], length: Long)
 
+case class DenseMatrix(rows: RDD[(Int, Array[Double])],
+                       nRows: Long,
+                       nCols: Long)
+
 case class CSRRow(row: Int, colIdx: Array[Int], values: Array[Double])
 
 case class CSRMatrix(rows: RDD[CSRRow], nRows: Long, nCols: Long)
