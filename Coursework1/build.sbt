@@ -22,3 +22,12 @@ javaOptions ++= Seq(
   "-Xms4G",
   "-Xmx8G"
 )
+
+Compile / run / fork := true
+
+Compile / run / javaOptions ++= Seq(
+  "--add-opens=java.base/java.nio=ALL-UNNAMED",
+  "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+  "--add-opens=java.base/java.lang=ALL-UNNAMED",
+  "--add-opens=java.base/java.util=ALL-UNNAMED"
+)

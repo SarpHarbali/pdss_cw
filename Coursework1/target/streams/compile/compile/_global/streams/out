@@ -1,7 +1,19 @@
-[0m[[0m[31merror[0m] [0m[0m/Users/sarpharbali/Documents/Edinburgh/Data Science at Scale/CW1/Coursework1/src/main/scala/pdss/engine/ExecutionEngine.scala:22:18: value partitionBy is not a member of org.apache.spark.rdd.RDD[(Int, V)][0m
-[0m[[0m[31merror[0m] [0m[0m    val L = left.partitionBy(p).persist()[0m
-[0m[[0m[31merror[0m] [0m[0m                 ^[0m
-[0m[[0m[31merror[0m] [0m[0m/Users/sarpharbali/Documents/Edinburgh/Data Science at Scale/CW1/Coursework1/src/main/scala/pdss/engine/ExecutionEngine.scala:23:19: value partitionBy is not a member of org.apache.spark.rdd.RDD[(Int, V)][0m
-[0m[[0m[31merror[0m] [0m[0m    val R = right.partitionBy(p).persist()[0m
-[0m[[0m[31merror[0m] [0m[0m                  ^[0m
-[0m[[0m[31merror[0m] [0m[0mtwo errors found[0m
+[0m[[0m[31merror[0m] [0m[0m/Users/baristekdemir/pdss_cw/Coursework1/src/main/scala/pdss/io/Loader.scala:4:8: object CSRMatrix is not a member of package pdss.core[0m
+[0m[[0m[31merror[0m] [0m[0mimport pdss.core.{SparseMatrix, DistVector, CSRMatrix, CSRRow}[0m
+[0m[[0m[31merror[0m] [0m[0m       ^[0m
+[0m[[0m[31merror[0m] [0m[0m/Users/baristekdemir/pdss_cw/Coursework1/src/main/scala/pdss/io/Loader.scala:71:34: not found: type CSRMatrix[0m
+[0m[[0m[31merror[0m] [0m[0m  def cooToCSR(m: SparseMatrix): CSRMatrix = {[0m
+[0m[[0m[31merror[0m] [0m[0m                                 ^[0m
+[0m[[0m[31merror[0m] [0m[0m/Users/baristekdemir/pdss_cw/Coursework1/src/main/scala/pdss/engine/ExecutionEngine.scala:5:8: object CSRMatrix is not a member of package pdss.core[0m
+[0m[[0m[31merror[0m] [0m[0mimport pdss.core.{DistVector, SparseMatrix, CSRMatrix}[0m
+[0m[[0m[31merror[0m] [0m[0m       ^[0m
+[0m[[0m[31merror[0m] [0m[0m/Users/baristekdemir/pdss_cw/Coursework1/src/main/scala/pdss/engine/ExecutionEngine.scala:48:25: not found: type CSRMatrix[0m
+[0m[[0m[31merror[0m] [0m[0m  def spmmCSRWithCOO(A: CSRMatrix, B: SparseMatrix): RDD[((Int, Int), Double)] = {[0m
+[0m[[0m[31merror[0m] [0m[0m                        ^[0m
+[0m[[0m[31merror[0m] [0m[0m/Users/baristekdemir/pdss_cw/Coursework1/src/main/scala/pdss/io/Loader.scala:79:9: not found: value CSRRow[0m
+[0m[[0m[31merror[0m] [0m[0m        CSRRow(i, colIdx, values)[0m
+[0m[[0m[31merror[0m] [0m[0m        ^[0m
+[0m[[0m[31merror[0m] [0m[0m/Users/baristekdemir/pdss_cw/Coursework1/src/main/scala/pdss/io/Loader.scala:82:5: not found: value CSRMatrix[0m
+[0m[[0m[31merror[0m] [0m[0m    CSRMatrix(rows, m.nRows, m.nCols)[0m
+[0m[[0m[31merror[0m] [0m[0m    ^[0m
+[0m[[0m[31merror[0m] [0m[0m6 errors found[0m

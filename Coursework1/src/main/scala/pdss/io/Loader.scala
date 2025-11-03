@@ -1,7 +1,7 @@
 package pdss.io
 
 import org.apache.spark.SparkContext
-import pdss.core.{SparseMatrix, DistVector}
+import pdss.core.{SparseMatrix, DistVector, CSRMatrix, CSRRow}
 import scala.util.Try
 
 object Loader {
@@ -10,35 +10,26 @@ object Loader {
   private def splitLine(line: String): Array[String] =
     line.split("[,\\t]")
 
-  /** True if the string parses to Int */
   private def isInt(s: String): Boolean = Try(s.toInt).isSuccess
-  /** True if the string parses to Double */
   private def isDouble(s: String): Boolean = Try(s.toDouble).isSuccess
 
-  /** Load COO format from CSV/TSV.
-   * Accepts lines like: i,j,v
-   * - Skips header lines (e.g., "row,col,value")
-   * - Skips comments starting with '#'
-   * - Accepts comma or tab as delimiter
-   */
+  /** Load COO format from CSV/TSV: i,j,v */
   def loadCOO(sc: SparkContext, path: String): SparseMatrix = {
     val parsed = sc.textFile(path)
       .map(_.trim)
       .filter(l => l.nonEmpty && !l.startsWith("#"))
       .map(splitLine)
-      // keep only valid triples (i,j,v)
       .filter(arr => arr.length >= 3 && isInt(arr(0)) && isInt(arr(1)) && isDouble(arr(2)))
       .map { arr =>
         (arr(0).toInt, arr(1).toInt, arr(2).toDouble)
       }
 
-    // Dimensions via max indices (0-based)
-    // NOTE: This is a small action, OK to infer dims.
     val maxI = parsed.map(_._1).max()
     val maxJ = parsed.map(_._2).max()
     SparseMatrix(parsed, nRows = maxI.toLong + 1, nCols = maxJ.toLong + 1)
   }
 
+  /** Dense-like CSV → COO */
   def loadCSVToCOO(sc: SparkContext, path: String): SparseMatrix = {
     val lines = sc.textFile(path)
       .map(_.trim)
@@ -50,27 +41,18 @@ object Loader {
       values.zipWithIndex.flatMap { case (valueStr, colIdx) =>
         if (isDouble(valueStr)) {
           val value = valueStr.toDouble
-          if (value != 0.0) {
-            Some((rowIdx.toInt, colIdx, value))
-          } else {
-            None
-          }
-        } else {
-          None
-        }
+          if (value != 0.0) Some((rowIdx.toInt, colIdx, value)) else None
+        } else None
       }
     }
 
-    // Determine dimensions
     val nRows = lines.count()
     val nCols = lines.first()._1.split("[,\\t]").length.toLong
 
     SparseMatrix(cooTriples, nRows = nRows, nCols = nCols)
   }
 
-  /** Load distributed vector j,val (or tab-separated).
-   * Skips header lines like "col,value" or "index,value".
-   */
+  /** index,value */
   def loadVector(sc: SparkContext, path: String): DistVector = {
     val parsed = sc.textFile(path)
       .map(_.trim)
@@ -83,5 +65,20 @@ object Loader {
 
     val len = parsed.map(_._1).max().toLong + 1
     DistVector(parsed, length = len)
+  }
+
+  /** NEW: convert COO (SparseMatrix) → CSRMatrix (row-grouped) */
+  def cooToCSR(m: SparseMatrix): CSRMatrix = {
+    val rows = m.entries
+      .groupBy(_._1) // group by row i
+      .map { case (i, triples) =>
+        val arr = triples.map { case (_, j, v) => (j, v) }.toArray
+        val sorted = arr.sortBy(_._1) // nicer to keep cols ordered
+        val colIdx = sorted.map(_._1)
+        val values = sorted.map(_._2)
+        CSRRow(i, colIdx, values)
+      }
+
+    CSRMatrix(rows, m.nRows, m.nCols)
   }
 }

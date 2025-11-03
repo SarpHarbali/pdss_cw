@@ -14,7 +14,7 @@ import scala.reflect.ClassTag
  * SpMV: y = A * x
  * SpMM: C = A * B   (both in COO)
  */
-object ExecutionEngine {
+object DataFrameEngine {
 
   private def coPartition[V: ClassTag](            // <-- add ClassTag for V
                                                    left: RDD[(Int, V)],
