@@ -66,11 +66,11 @@ object Main extends App {
   // --- Save both full results ---
   val cooOutputPath = "results/spmm_coo_output"
   val csrOutputPath = "results/spmm_csr_output"
-  
+
   // Clear existing output directories if they exist
   ensureOutputPathClear(sc, cooOutputPath)
   ensureOutputPathClear(sc, csrOutputPath)
-  
+
   // Save results
   C_coo.map { case ((i, j), v) => s"$i,$j,$v" }
     .saveAsTextFile(cooOutputPath)
@@ -80,7 +80,7 @@ object Main extends App {
 
   println(
     s"\n✅ Results written to results/spmm_coo_output and results/spmm_csr_output\n" +
-    f"⏱ Total Time Summary: COO×COO = $timeCooMs%.2f ms, CSR×COO = $timeCsrMs%.2f ms"
+      f"⏱ Total Time Summary: COO×COO = $timeCooMs%.2f ms, CSR×COO = $timeCsrMs%.2f ms"
   )
 
   sc.stop()

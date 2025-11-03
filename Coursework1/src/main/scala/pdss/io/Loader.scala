@@ -81,4 +81,18 @@ object Loader {
 
     CSRMatrix(rows, m.nRows, m.nCols)
   }
+
+  def cooToCSR(m: SparseMatrix): CSRMatrix = {
+    val rows = m.entries
+      .groupBy(_._1) // group by row i
+      .map { case (i, triples) =>
+        val arr = triples.map { case (_, j, v) => (j, v) }.toArray
+        val sorted = arr.sortBy(_._1) // nicer to keep cols ordered
+        val colIdx = sorted.map(_._1)
+        val values = sorted.map(_._2)
+        CSRRow(i, colIdx, values)
+      }
+
+    CSRMatrix(rows, m.nRows, m.nCols)
+  }
 }
