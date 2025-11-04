@@ -17,3 +17,6 @@ case class DenseMatrix(rows: RDD[(Int, Array[Double])],
 case class CSRRow(row: Int, colIdx: Array[Int], values: Array[Double])
 
 case class CSRMatrix(rows: RDD[CSRRow], nRows: Long, nCols: Long)
+
+case class CSCCol(col: Int, rowIdx: Array[Int], values: Array[Double])
+case class CSCMatrix(cols: RDD[CSCCol], nRows: Long, nCols: Long)
