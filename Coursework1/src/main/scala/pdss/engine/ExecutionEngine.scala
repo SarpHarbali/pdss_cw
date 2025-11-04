@@ -130,42 +130,68 @@ object ExecutionEngine {
   // so this is best for smaller matrices or as an "advanced layout" demo.
   // ---------------------------------------------------------------------------
   def spmmCSRWithCSC(A: CSRMatrix, B: CSCMatrix): RDD[((Int, Int), Double)] = {
-
-    val rowColPairs: RDD[(CSRRow, CSCCol)] = A.rows.cartesian(B.cols)
-
-    rowColPairs.flatMap { case (row, col) =>
+    // A in CSR: expand each row i → (k,(i,vA))
+    val A_byK: RDD[(Int, (Int, Double))] = A.rows.flatMap { row =>
       val i = row.row
-      val j = col.col
-
-      val rowIdx = row.colIdx     // k indices from A
-      val rowVals = row.values
-
-      val colIdx = col.rowIdx     // k indices from B
-      val colVals = col.values
-
-      var p = 0
-      var q = 0
-      var sum = 0.0
-
-      // merge two sorted lists on k
-      while (p < rowIdx.length && q < colIdx.length) {
-        val rk = rowIdx(p)
-        val ck = colIdx(q)
-        if (rk == ck) {
-          sum += rowVals(p) * colVals(q)
-          p += 1
-          q += 1
-        } else if (rk < ck) {
-          p += 1
-        } else {
-          q += 1
-        }
+      val cols = row.colIdx
+      val vals = row.values
+      val out = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](cols.length)
+      var t = 0
+      while (t < cols.length) {
+        out += ((cols(t), (i, vals(t))))
+        t += 1
       }
-
-      if (sum != 0.0)
-        Some(((i, j), sum))
-      else
-        None
+      out
     }
+
+    // B in CSC: expand each column j → (k,(j,vB))
+    val B_byK: RDD[(Int, (Int, Double))] = B.cols.flatMap { col =>
+      val j = col.col
+      val rIdx = col.rowIdx
+      val v    = col.values
+      val out = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](rIdx.length)
+      var t = 0
+      while (t < rIdx.length) {
+        out += ((rIdx(t), (j, v(t))))
+        t += 1
+      }
+      out
+    }
+
+    // Co-partition to reduce shuffle, then join on k
+    val (aPart, bPart) = coPartition(A_byK, B_byK)
+    val joined = aPart.join(bPart) // (k, ((i,vA),(j,vB)))
+
+    // Multiply and accumulate to C(i,j)
+    val products = joined.map { case (_, ((i, vA), (j, vB))) => ((i, j), vA * vB) }
+    products.reduceByKey(_ + _)
+
   }
+
+  def spmm_dense(A: SparseMatrix, B: DenseMatrix): RDD[(Int, Array[Double])] = {
+    val AkeyedByJ: RDD[(Int, (Int, Double))] = A.entries.map { case (i, j, v) => (j, (i, v)) }
+    val joined = AkeyedByJ.join(B.rows)  // <-- fix here
+
+    val partials: RDD[(Int, Array[Double])] = joined.map { case (_, ((i, v), rowB)) =>
+      val out = new Array[Double](rowB.length)
+      var k = 0
+      while (k < rowB.length) { out(k) = rowB(k) * v; k += 1 }
+      (i, out)
+    }
+
+    partials.reduceByKey { (a, b) =>
+      val len = math.max(a.length, b.length)
+      val res = new Array[Double](len)
+      var k = 0
+      while (k < len) {
+        val av = if (k < a.length) a(k) else 0.0
+        val bv = if (k < b.length) b(k) else 0.0
+        res(k) = av + bv
+        k += 1
+      }
+      res
+    }
+
+  }
+
 }

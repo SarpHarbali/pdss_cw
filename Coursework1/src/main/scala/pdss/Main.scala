@@ -7,7 +7,7 @@ import pdss.io.Loader
 
 object Main extends App {
 
-  def ensureOutputPathClear(sc: SparkContext, path: String): Unit = {
+  private def ensureOutputPathClear(sc: SparkContext, path: String): Unit = {
     val outPath = new Path(path)
     val fs = FileSystem.get(sc.hadoopConfiguration)
     if (fs.exists(outPath)) {
