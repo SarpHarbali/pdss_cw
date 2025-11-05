@@ -1,7 +1,7 @@
 package pdss.io
 
 import org.apache.spark.SparkContext
-import pdss.core.{SparseMatrix, DistVector, CSRMatrix, CSRRow, CSCMatrix, CSCCol}
+import pdss.core.{SparseMatrix, DistVector, CSRMatrix, CSRRow, CSCMatrix, CSCCol, DenseMatrix}
 import scala.util.Try
 
 object Loader {
