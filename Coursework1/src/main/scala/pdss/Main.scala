@@ -46,8 +46,9 @@ object Main extends App {
 
 
   // --- Execute the correct order ---
-  timePlan(s"${plan.order} (chosen)") {
+  timePlan("chosen order") {
     if (plan.order == "AB_then_C") {
+      println(f"AB then C")
       val AB  = ExecutionEngine.spmm(A, B).map { case ((i,j),v) => (i,j,v) }
       val ABm = SparseMatrix(AB, A.nRows, B.nCols)
       val ABC = ExecutionEngine.spmm(ABm, C).map { case ((i,j),v) => (i,j,v) }
@@ -59,8 +60,8 @@ object Main extends App {
       SparseMatrix(ABC, A.nRows, C.nCols)
     }
   }
-/*
-  timePlan("Opposite (non-optimal) order") {
+
+  timePlan("non-optimal order") {
     if (plan.order == "AB_then_C") {
       val BC  = ExecutionEngine.spmm(B, C).map { case ((i,j),v) => (i,j,v) }
       val BCm = SparseMatrix(BC, B.nRows, C.nCols)
@@ -72,7 +73,7 @@ object Main extends App {
       val ABC = ExecutionEngine.spmm(ABm, C).map { case ((i,j),v) => (i,j,v) }
       SparseMatrix(ABC, A.nRows, C.nCols)
     }
-  }*/
+  }
 
 
 
