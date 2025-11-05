@@ -25,7 +25,7 @@ object ExecutionEngine {
       left: RDD[(Int, V)],
       right: RDD[(Int, W)]
   ): (RDD[(Int, V)], RDD[(Int, W)]) = {
-    val p = new HashPartitioner(left.sparkContext.defaultParallelism * 2)
+    val p = new HashPartitioner(left.sparkContext.defaultParallelism * 5)
     val L = left.partitionBy(p).persist()
     val R = right.partitionBy(p).persist()
     (L, R)
