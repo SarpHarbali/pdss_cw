@@ -98,4 +98,26 @@ object Loader {
     CSCMatrix(cols, m.nRows, m.nCols)
   }
 
+  def loadDenseMatrixRows(sc: SparkContext, path: String): DenseMatrix = {
+    val lines = sc.textFile(path)
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .zipWithIndex()
+
+    val rows = lines.map { case (line, rowIdx) =>
+      val parts = line.split(",")
+      val arr = new Array[Double](parts.length)
+      var k = 0
+      while (k < parts.length) {
+        arr(k) = parts(k).toDouble
+        k += 1
+      }
+      (rowIdx.toInt, arr)
+    }
+
+    val numRows = lines.count()
+    val numCols = rows.first()._2.length.toLong
+    DenseMatrix(rows, numRows, numCols)
+  }
+
 }
