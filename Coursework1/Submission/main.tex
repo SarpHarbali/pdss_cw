@@ -1,0 +1,404 @@
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{times}
+\usepackage{natbib}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{float}
+\usepackage{listings}
+
+
+\title{PDSS Project: A Distributed Engine for Large-Scale Sparse Matrix and Tensor Algebra}
+
+\begin{document}
+
+\maketitle
+
+\textcolor{red}{\textbf{IMPORTANT: All red italicized text below are placeholders/instructions that you should remove and replace with your actual content!}}
+
+\begin{abstract}
+\textcolor{red}{\textit{Write your abstract here (150-200 words)}}
+
+\end{abstract}
+
+\section{Introduction}\label{sec:introduction}
+
+\subsection{Motivation and Problem Statement}
+\textcolor{red}{\textit{Write 3-4 paragraphs explaining: why sparse matrix operations are important (applications), technical challenges in distributed environments, your solution approach, and your main contributions.}}
+
+
+\subsection{System Overview and Architecture}
+
+\textbf{Operations Implemented:} \textcolor{red}{\textit{You must specify exactly which operation combinations you chose to implement. Please check (\checkmark) the combinations you've implemented.}}
+\begin{table}[H]
+\centering
+\caption{Select the combinations you will implement.}
+\begin{tabular}{llcc}
+\toprule
+\textbf{Operation} & \textbf{Left Operand} & \textbf{Right Operand} & \textbf{Implemented? (\checkmark)} \\
+\midrule
+SpMV & Sparse Matrix & Dense Vector & \\
+SpMV & Sparse Matrix & Sparse Vector & \\
+\addlinespace
+SpMM & Sparse Matrix & Dense Matrix & \\
+SpMM & Sparse Matrix & Sparse Matrix & \\
+\addlinespace
+Tensor Algebra & \multicolumn{2}{l}{(e.g., MTTKRP)} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Data Flow Diagrams:} \textcolor{red}{\textit{You must create separate flow diagrams for each operation you implemented, showing the complete data path through all system components}}
+
+\section{Frontend Design}\label{sec:frontend}
+
+\subsection{User-Facing API Design}
+
+\textcolor{red}{\textit{Show your API design (class, functions, or interface) that accepts different operations as input and performs the actions. Focus on design and prototypes, not full implementation code. Explain how users specify operations and how you handle different operand types (Sparse \& Dense).}}
+
+
+
+
+\section{Execution Engine}\label{sec:execution}
+
+\subsection{Data Layout and Representation}
+
+\subsubsection{Data Loading Mechanisms}
+
+The system supports multiple input formats and performs fully distributed loading using Apache Spark.  
+Matrices can be loaded from either:
+\begin{itemize}
+  \item \textbf{COO triplet files:} Each line stores a non-zero entry as \texttt{(row, col, value)}.  
+        These are parsed directly into \texttt{RDD[(Int, Int, Double)]} tuples.
+  \item \textbf{Dense CSV files:} Each line represents a row of the matrix.  
+        During parsing, zero values are filtered out to form a sparse COO representation automatically.
+  \item \textbf{Vector files:} Stored as \texttt{(index, value)} pairs for distributed vectors.
+\end{itemize}
+
+All data are loaded using \texttt{SparkContext.textFile()}, which partitions files across workers.  
+Each worker parses its own lines, so large CSV or TSV inputs are processed in parallel without collecting the full dataset.
+---
+
+\subsubsection{Dense Representations}
+
+Dense data are stored in row-based layouts for efficient local computation within each partition:
+\begin{itemize}
+  \item \textbf{DenseMatrix:} \texttt{RDD[(Int, Array[Double])]}, one row per record, providing contiguous access to row elements.
+  \item \textbf{DistVector:} \texttt{RDD[(Int, Double)]}, where each element is stored with its index, supporting distributed joins with matrix columns for \texttt{SpMV}.
+\end{itemize}
+
+These formats minimise per-element object overhead and are efficient for small or fully populated matrices and vectors.
+
+---
+
+\subsubsection{Sparse Representations}
+
+The system’s baseline layout is the \textbf{Coordinate (COO)} format:
+\[
+\texttt{RDD[(Int, Int, Double)]} \;\Rightarrow\; (i, j, v)
+\]
+Each record represents one non-zero element.  
+This format maps directly to Spark’s key–value model, enabling distributed joins on row or column indices for \texttt{SpMV} and \texttt{SpMM} operations.
+
+\subsubsection{Justification}
+
+\textbf{COO} is chosen as the default layout because it is simple, flexible, and directly compatible with distributed key-based operations.  
+It supports both row- and column-keyed joins without preprocessing.  
+ \textbf{DenseMatrix} and \textbf{DistVector} provide contiguous layouts for non-sparse data.
+
+Together, these formats balance scalability, memory efficiency, and performance across different matrix operations and workload patterns.
+
+\subsubsection{Data Distribution Example:} 
+
+
+A $3 \times 4$ sparse matrix:
+\[
+A =
+\begin{bmatrix}
+1 & 0 & 2 & 0 \\
+0 & 0 & 3 & 0 \\
+4 & 0 & 0 & 5
+\end{bmatrix}
+\]
+is stored in COO form as:
+\[
+\texttt{RDD[(i,j,v)] = \{(0,0,1.0), (0,2,2.0), (1,2,3.0), (2,0,4.0), (2,3,5.0)\}}
+\]
+and distributed across workers as independent partitions, for example:
+\[
+P_0 = \{(0,0,1.0),(0,2,2.0)\}, \quad
+P_1 = \{(1,2,3.0)\}, \quad
+P_2 = \{(2,0,4.0),(2,3,5.0)\}.
+\]
+Each partition performs local operations on its subset of non-zeros before global aggregation.
+
+
+
+\subsection{Runtime Implementation}\label{subsec:runtime}
+
+\subsubsection{Overview}
+
+The runtime engine is built entirely on \textbf{low-level RDD transformations} without using Spark \texttt{DataFrames} or \texttt{Datasets}.  
+Each operation is expressed as a sequence of \texttt{map}, \texttt{flatMap}, \texttt{join}, and \texttt{reduceByKey} transformations, ensuring full control over data distribution and shuffle behaviour.  
+No operation ever invokes \texttt{collect()} or any driver-side materialisation of large RDDs.  
+All intermediate and final results remain distributed until a terminal action such as \texttt{count()} or \texttt{saveAsTextFile()} is called.
+
+The runtime supports four distributed kernels:
+\begin{itemize}
+  \item \textbf{SpMV (Sparse × Sparse Vector)}
+  \item \textbf{SpMV (Sparse × Dense Vector)}
+  \item \textbf{SpMM (Sparse × Sparse Matrix)}
+  \item \textbf{SpMM (Sparse × Dense Matrix)}
+\end{itemize}
+
+
+\subsubsection{SpMV: Sparse Matrix × Sparse Vector}
+
+Given $A(i,j,v)$ and $x(j,x_j)$, the product
+\[
+y_i = \sum_j A_{ij} x_j
+\]
+is computed as follows:
+\begin{enumerate}
+  \item \textbf{Join:} The matrix is keyed by its column index $j$ and joined with the vector on the same key:  
+  \texttt{A.entries.map((j,(i,v))).join(x.values)}.
+  \item \textbf{Map:} Each joined pair emits a partial result \texttt{(i, v * xj)}.
+  \item \textbf{Aggregation:} Partial values are summed per row index using \texttt{reduceByKey(\_+\_)}.
+\end{enumerate}
+This join-based strategy scales efficiently with matrix sparsity and avoids broadcasting the vector across workers. Below is the code implementation:
+
+
+\begin{lstlisting}[language=Scala]
+def spmv(A: SparseMatrix, x: DistVector): RDD[(Int, Double)] = {
+  val Akeyed = A.entries.map { case (i, j, v) => (j, (i, v)) }
+  val joined = Akeyed.join(x.values)            
+  joined.map { case (_, ((i, v), xj)) => (i, v * xj) }
+        .reduceByKey(_ + _)
+}
+\end{lstlisting}
+
+
+\subsubsection{SpMV: Sparse Matrix × Dense Vector}
+
+When the vector is dense, the runtime instead uses a \texttt{Broadcast} variable.  
+Each partition accesses the dense array directly:
+\[
+y_i = \sum_j A_{ij} \cdot x_j
+\]
+\begin{itemize}
+  \item \textbf{Map:} Each non-zero $(i,j,v)$ retrieves $x_j$ locally from the broadcast array, multiplies, and emits $(i, v \cdot x_j)$.
+  \item \textbf{Reduce:} Results are summed with \texttt{reduceByKey(\_+\_)} to form the output vector.
+\end{itemize}
+This approach eliminates the shuffle associated with joins and is more efficient when the dense vector comfortably fits in memory. Below is the code implementation:
+
+\begin{lstlisting}[language=Scala]
+def spmvCooWithDense(A: SparseMatrix, x_bcast: Broadcast[Array[Double]]): RDD[(Int, Double)] = {
+  val x = x_bcast.value
+  A.entries.map { case (i, j, v) =>
+      val xj = if (j < x.length) x(j) else 0.0
+      (i, v * xj)
+  }.reduceByKey(_ + _)
+}
+\end{lstlisting}
+
+\subsubsection{SpMM: Sparse Matrix × Sparse Matrix}
+
+For $A(i,k,v_A)$ and $B(k,j,v_B)$:
+\[
+C_{ij} = \sum_k A_{ik} B_{kj}
+\]
+\begin{enumerate}
+  \item \textbf{Join:} Both matrices are keyed on $k$ and co-partitioned using a \texttt{HashPartitioner} to reduce shuffle.
+  \item \textbf{Map:} Joined records emit \texttt{((i,j), vA * vB)}.
+  \item \textbf{Aggregation:} Partial products are accumulated via \texttt{reduceByKey(\_+\_)} to produce $C(i,j,v)$.
+\end{enumerate}
+The COO layout aligns naturally with Spark’s key–value model, allowing clean expression of distributed matrix multiplication. Below is the code implementation:
+
+\begin{lstlisting}[language=Scala]
+def spmm(A: SparseMatrix, B: SparseMatrix): RDD[((Int, Int), Double)] = {
+  val AbyK = A.entries.map { case (i, k, vA) => (k, (i, vA)) }
+  val BbyK = B.entries.map { case (k, j, vB) => (k, (j, vB)) }
+  val joined = AbyK.join(BbyK)                  // (k, ((i,vA),(j,vB)))
+  joined.map { case (_, ((i, vA), (j, vB))) =>
+      ((i, j), vA * vB)
+  }.reduceByKey(_ + _)
+}
+\end{lstlisting}
+
+\subsubsection{SpMM: Sparse Matrix × Dense Matrix}
+
+Given a sparse matrix $A(i,j,v)$ and a dense matrix $B(j, \mathbf{b}_j)$ stored as row arrays:
+\[
+C_i = \sum_j A_{ij} \cdot \mathbf{b}_j
+\]
+\begin{itemize}
+  \item \textbf{Join:} Each non-zero $(i,j,v)$ is joined with the corresponding row vector $\mathbf{b}_j$ of $B$.
+  \item \textbf{Map:} The dense row is scaled by $v$ to yield a partial row contribution for $i$.
+  \item \textbf{Reduce:} Partial rows are elementwise-summed using \texttt{reduceByKey}, producing \texttt{RDD[(i, Array[Double])]}.
+\end{itemize}
+This kernel extends the same join–map–reduce pattern to mixed sparse–dense scenarios. Below is the code implementation:
+
+\begin{lstlisting}[language=Scala]
+def spmm_dense(A: SparseMatrix, B: DenseMatrix): RDD[(Int, Array[Double])] = {
+  val AkeyedByJ: RDD[(Int, (Int, Double))] =
+    A.entries.map { case (i, j, v) => (j, (i, v)) }
+
+  val joined: RDD[(Int, ((Int, Double), Array[Double]))] =
+    AkeyedByJ.join(B.rows)
+
+  val partials: RDD[(Int, Array[Double])] = joined.map {
+    case (_, ((i, v), rowB)) =>
+      val out = new Array[Double](rowB.length)
+      var k = 0
+      while (k < rowB.length) { out(k) = rowB(k) * v; k += 1 }
+      (i, out)
+  }
+
+  partials.reduceByKey { (a, b) =>
+    val len = math.max(a.length, b.length)
+    val res = new Array[Double](len)
+    var k = 0
+    while (k < len) {
+      val av = if (k < a.length) a(k) else 0.0
+      val bv = if (k < b.length) b(k) else 0.0
+      res(k) = av + bv
+      k += 1
+    }
+    res
+  }
+}
+\end{lstlisting}
+
+\subsubsection{Summary}
+
+Across all kernels, the engine translates high-level algebraic operations into explicit distributed pipelines built solely on RDD primitives.  
+By combining careful keying, co-partitioning, and broadcast optimisation, the runtime executes efficiently at scale while adhering strictly to Spark’s distributed dataflow model.
+
+
+
+
+
+\subsection{Distributed Optimizations}\label{subsec:distributed-opt}
+
+
+\subsubsection{Overview}
+
+The runtime includes several distributed optimisation strategies aimed at reducing network communication, achieving better data locality, and maintaining load balance across Spark executors.  
+All optimisations are implemented within the RDD abstraction layer, without relying on Spark’s Catalyst optimizer or DataFrame-level physical plans.  
+The focus is on explicit control of partitioning, co-location, persistence, and broadcast use to improve scalability and throughput for large sparse workloads.
+
+---
+
+\subsubsection{Partitioning and Co-location}
+
+Matrix and vector RDDs are partitioned by integer keys corresponding to their join dimension.  
+For operations such as \texttt{SpMM(A,B)}, both operands are re-keyed on the shared index $k$ and then explicitly co-partitioned using a custom \texttt{HashPartitioner}:
+\[
+(A_k, B_k) \;\Rightarrow\; \texttt{partitionBy(new HashPartitioner(p))}
+\]
+This ensures that entries sharing the same $k$ value reside on the same executor before the join.  
+Co-location drastically reduces shuffle overhead by converting expensive all-to-all exchanges into partition-local joins.  
+The partitioner size is tuned to \texttt{defaultParallelism × 5} to balance task granularity and scheduling overhead.
+
+---
+
+\subsubsection{Shuffle Minimisation}
+
+Shuffle operations are the dominant cost in distributed matrix computations.  
+The engine avoids unnecessary reshuffling by:
+\begin{itemize}
+  \item Applying co-partitioning prior to joins.
+  \item Using \texttt{reduceByKey} instead of \texttt{groupByKey}, performing partial aggregation on each partition before shuffle.
+  \item Keeping intermediate results in the same key domain (e.g. $(i,j)$ or $(i)$) between consecutive transformations.
+\end{itemize}
+These optimisations collectively reduce the volume of intermediate data transferred between executors and lower job stage counts.
+
+---
+
+\subsubsection{Load Balancing for Irregular Sparsity}
+
+Sparse matrices with uneven non-zero distributions can cause workload imbalance.  
+By using key-based partitioning on the join dimension rather than fixed row blocks, the engine spreads dense regions (hot columns or rows) across multiple executors.  
+This dynamic hashing ensures that dense rows or columns do not create straggler tasks while keeping shuffle boundaries consistent.
+
+---
+
+\subsubsection{Caching and Persistence}
+
+Matrices that are reused across multiple operations (e.g., chain multiplications or repeated SpMV calls) are explicitly persisted using Spark’s \texttt{persist()} API with memory-level storage.  
+Intermediate RDDs after partitioning or joining are also cached where reuse is expected.  
+This reduces recomputation and I/O overhead, trading modest memory use for substantial performance gains.
+
+---
+
+\subsubsection{Broadcast Variables}
+
+When one operand is small and dense (e.g., a dense vector or narrow dense matrix), it is broadcast to all executors using \texttt{sc.broadcast()}.  
+This allows each worker to access the data locally within map transformations, avoiding shuffles entirely.  
+The \texttt{spmvCooWithDense} kernel uses this strategy to multiply a sparse matrix by a dense vector efficiently.
+
+---
+
+\subsubsection{Summary}
+
+Together, these optimisations—co-partitioning, shuffle minimisation, load-balanced hashing, caching, and broadcast use—enable efficient distributed execution while preserving full scalability.  
+The runtime achieves reduced data movement, improved locality, and consistent task distribution across Spark’s parallel architecture.
+
+
+
+\section{Advanced Optimizations}\label{sec:advanced}
+
+\textcolor{red}{\textit{Once you have a working, optimized engine, explore more advanced techniques. These are excellent topics for demonstrating advanced understanding.}}
+
+\subsection{Advanced Data Layout Optimizations}\label{subsec:advanced-layout}
+\textcolor{red}{\textit{The COO format is simple but not always the most efficient. If you implemented advanced data layouts, describe: CSR/DCSR formats (very efficient for SpMV), CSF format (if implementing tensor algebra), adaptive layout selection based on sparsity patterns, and any other advanced data layout techniques.}}
+
+\subsection{Algebraic Optimizations}\label{subsec:algebraic-opt}
+
+\textcolor{red}{\textit{Can you use mathematical properties to reduce the amount of computation or communication? If you implemented algorithmic optimizations, describe: matrix reordering for bandwidth reduction, symbolic preprocessing and pattern analysis, kernel fusion to reduce memory traffic, optimization of matrix multiplication chains (e.g., A·B·C order matters), distributivity law applications (A·(B+C) = A·B + A·C), and any other mathematical optimizations you applied.}}
+
+\section{Performance Evaluation}\label{sec:benchmarking}
+
+\subsection{Experimental Setup}
+
+\textcolor{red}{\textit{Document your experimental setup: hardware platform, software environment, test datasets, baseline system(s) you compare against, metrics you measured, and measurement methodology.}}
+
+\subsection{Microbenchmark Results}\label{subsec:microbenchmarks}
+
+\textcolor{red}{\textit{Present your microbenchmark results focusing on comparing against SparkSQL's DataFrame. Include results for different matrix sizes and sparsity levels, speedup achieved by your optimizations, and analysis of performance characteristics.}}
+
+\subsection{Impact of Distributed Optimizations}\label{subsec:distributed-impact}
+\textcolor{red}{\textit{Measure the effectiveness of your distributed optimizations. Present your scalability analysis: how performance scales with the number of workers/threads, execution time, speedup, and efficiency measurements, and analysis of scaling limits and bottlenecks.}}
+
+\subsection{Further Ablation Studies}\label{subsec:ablation}
+\textcolor{red}{\textit{Show impact of each advanced optimization by turning them on/off systematically. Demonstrate the effectiveness of your advanced data layout optimizations and algebraic optimizations separately.}}
+
+\subsection{End-to-End System Evaluation}\label{subsec:end-to-end}
+\textcolor{red}{\textit{Complete system performance evaluation. Test on real-world applications that go beyond a single tensor operation, compare total execution time with baseline systems, report performance improvements, and analyze end-to-end system behavior.}}
+
+\textcolor{red}{\textit{Compare against alternative implementations or existing systems. Demonstrate the advantages of your approach.}}
+
+\textcolor{red}{\textit{Demonstrate your system with practical use cases. Show how your engine performs on realistic applications and workloads.}}
+
+\section{Conclusions}\label{sec:conclusions}
+\textcolor{red}{\textit{Summarize your main contributions: list 3-4 key achievements of your work, quantify the impact and significance of each contribution, include performance improvements and technical innovations, and highlight what makes your approach unique or effective.}}
+
+\textcolor{red}{\textit{Reflect on your development experience: technical insights about parallel/distributed computing, key design decisions and their implications, most difficult implementation aspects, and unexpected performance results.}}
+
+\textcolor{red}{\textit{Discuss potential improvements and future work: algorithm optimizations you could implement, how to scale your system to larger clusters/datasets, additional features that would enhance functionality, performance tuning opportunities you identified, and research directions for further development.}}
+
+\bibliography{mybib}
+\bibliographystyle{plain}
+
+\appendix
+\section{Appendix}
+\textcolor{red}{\textit{Include any additional material here}}
+
+\end{document}
