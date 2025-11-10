@@ -2,7 +2,7 @@ package pdss.engine
 
 import org.apache.spark.HashPartitioner
 import org.apache.spark.rdd.RDD
-import pdss.core._   // SparseMatrix, DistVector, CSRMatrix, CSRRow, CSCMatrix, CSCCol
+import pdss.core._   // SparseMatrix, DistVector, CSRMatrix, CSRRow, CSCMatrix, CSCCol, DenseMatrix
 import org.apache.spark.SparkContext._
 import org.apache.spark.broadcast.Broadcast
 
@@ -10,15 +10,13 @@ import scala.reflect.ClassTag
 
 /**
  * Baseline + optimized execution engine built only on RDDs.
- * - SpMV (COO × vector)
- * - SpMV (CSR × vector)
- * - SpMV (COO x Broadcast Dense Vector)
- * - SpMV (CSR x Broadcast Dense Vector)
- * - SpMM (COO × COO)
- * - SpMM (CSR × COO)
- * - SpMM (CSR × CSC)
+ * Allowed (per instructor):
+ *  - COO × COO
+ *  - CSR × CSR
+ *  - CSC × CSC
  *
- * No DataFrames / Datasets.
+ * Not allowed:
+ *  - mixing formats (CSR × COO, CSR × CSC, ...)
  */
 object ExecutionEngine {
 
@@ -37,9 +35,6 @@ object ExecutionEngine {
 
   // ---------------------------------------------------------------------------
   // 1) SpMV: y = A * x  (COO × SparseVector)
-  // A: SparseMatrix in COO → entries: RDD[(i, j, v)]
-  // x: DistVector (Sparse) → values: RDD[(j, xj)]
-  // result: RDD[(i, yi)]
   // ---------------------------------------------------------------------------
   def spmv(A: SparseMatrix, x: DistVector): RDD[(Int, Double)] = {
     // key A by column j to join with x
@@ -57,96 +52,67 @@ object ExecutionEngine {
 
   // ---------------------------------------------------------------------------
   // 2) SpMV advanced: y = A * x  (CSR × SparseVector)
-  //
-  // A: CSRMatrix → rows: RDD[CSRRow(row, colIdx[], values[])]
-  // x: DistVector (Sparse) → values: RDD[(j, xj)]
-  // result: RDD[(i, yi)]
   // ---------------------------------------------------------------------------
   def spmvCSR(A: CSRMatrix, x: DistVector): RDD[(Int, Double)] = {
-    // Key A by column k (which is the index j of vector x)
-    // Maps to: (k, (i, vA))
     val AbyK: RDD[(Int, (Int, Double))] = A.rows.flatMap { row =>
-      val i = row.row
+      val i    = row.row
       val cols = row.colIdx
       val vals = row.values
-      
-      // Emit (j, (i, vA)) for each non-zero element A(i,j)
-      val buf = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](cols.length)
+      val buf  = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](cols.length)
       var t = 0
       while (t < cols.length) {
-        buf += ((cols(t), (i, vals(t)))) // (k, (i, vA)) where k=j
+        buf += ((cols(t), (i, vals(t))))
         t += 1
       }
       buf
     }
 
-    // Vector x: RDD[(j, xj)]
     val xByJ: RDD[(Int, Double)] = x.values
 
-    // Co-partition and join on k=j
     val (acp, xcp) = coPartition(AbyK, xByJ)
 
-    // Joined: (j, ((i, vA), xj))
     val joined = acp.join(xcp)
 
-    // Map to (i, vA * xj)
     joined
       .map { case (_, ((i, vA), xj)) => (i, vA * xj) }
-      // Reduce by row index i to get final result yi
       .reduceByKey(_ + _)
   }
 
   // ---------------------------------------------------------------------------
   // 3) SpMV: y = A * x  (COO × DenseVector)
-  //
-  // Assumes x is a local Array[Double] broadcasted to all nodes.
-  //
-  // A: SparseMatrix in COO → entries: RDD[(i, j, v)]
-  // x: Broadcast[Array[Double]] (Dense)
-  // result: RDD[(i, yi)]
   // ---------------------------------------------------------------------------
   def spmvCooWithDense(A: SparseMatrix, x_bcast: Broadcast[Array[Double]]): RDD[(Int, Double)] = {
     val x = x_bcast.value
     A.entries
-      .map { case (i, j, v) => 
-        val xj = if (j < x.length) x(j) else 0.0 // Bounds check
-        (i, v * xj) 
+      .map { case (i, j, v) =>
+        val xj = if (j < x.length) x(j) else 0.0
+        (i, v * xj)
       }
       .reduceByKey(_ + _)
   }
 
   // ---------------------------------------------------------------------------
   // 4) SpMV advanced: y = A * x  (CSR × DenseVector)
-  //
-  // Assumes x is a local Array[Double] broadcasted to all nodes.
-  // This is a highly efficient, shuffle-free SpMV implementation.
-  //
-  // A: CSRMatrix → rows: RDD[CSRRow(row, colIdx[], values[])]
-  // x: Broadcast[Array[Double]] (Dense)
-  // result: RDD[(i, yi)]
   // ---------------------------------------------------------------------------
   def spmvCsrWithDense(A: CSRMatrix, x_bcast: Broadcast[Array[Double]]): RDD[(Int, Double)] = {
     val x = x_bcast.value
     A.rows.map { row =>
-      val i = row.row
+      val i    = row.row
       val cols = row.colIdx
       val vals = row.values
-      
+
       var yi = 0.0
-      var t = 0
+      var t  = 0
       while (t < cols.length) {
         val j = cols(t)
-        val vA = vals(t)
-        // Perform local dot product
-        if (j < x.length) { // Safety bounds check
-          yi += vA * x(j)
+        if (j < x.length) {
+          yi += vals(t) * x(j)
         }
         t += 1
       }
       (i, yi)
     }
   }
-
 
   // ---------------------------------------------------------------------------
   // 5) SpMM baseline: COO × COO
@@ -174,38 +140,43 @@ object ExecutionEngine {
   }
 
   // ---------------------------------------------------------------------------
-  // 6) SpMM optimized: CSR (left) × COO (right)
+  // 6) SpMM advanced: CSR × CSR
   //
-  // A: CSRMatrix → rows: RDD[CSRRow(row, colIdx[], values[])]
-  // B: SparseMatrix (COO) → entries: RDD[(k, j, vB)]
-  //
-  // Strategy:
-  //  - expand CSR rows to (k, (i, vA))
-  //  - key B by k
-  //  - join on k
-  //  - emit ((i,j), vA*vB) and reduce
+  // expand A rows to (k, (i, vA))
+  // expand B rows to (k, (j, vB))
+  // join on k
   // ---------------------------------------------------------------------------
-  def spmmCSRWithCOO(A: CSRMatrix, B: SparseMatrix): RDD[((Int, Int), Double)] = {
-
-    val AbyK: RDD[(Int, (Int, Double))] = A.rows.flatMap { row =>
-      val i = row.row
+  def spmmCSR(A: CSRMatrix, B: CSRMatrix): RDD[((Int, Int), Double)] = {
+    // A → (k, (i, vA))
+    val A_byK: RDD[(Int, (Int, Double))] = A.rows.flatMap { row =>
+      val i    = row.row
       val cols = row.colIdx
       val vals = row.values
-      val buf = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](cols.length)
+      val out  = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](cols.length)
       var t = 0
       while (t < cols.length) {
-        buf += ((cols(t), (i, vals(t))))
+        out += ((cols(t), (i, vals(t))))  // key by k
         t += 1
       }
-      buf
+      out
     }
 
-    val BbyK: RDD[(Int, (Int, Double))] =
-      B.entries.map { case (k, j, vB) => (k, (j, vB)) }
+    // B → (k, (j, vB))
+    val B_byK: RDD[(Int, (Int, Double))] = B.rows.flatMap { row =>
+      val k    = row.row
+      val cols = row.colIdx
+      val vals = row.values
+      val out  = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](cols.length)
+      var t = 0
+      while (t < cols.length) {
+        out += ((k, (cols(t), vals(t))))   // (k, (j, vB))
+        t += 1
+      }
+      out
+    }
 
-    val (acp, bcp) = coPartition(AbyK, BbyK)
-
-    val joined = acp.join(bcp) // (k, ((i,vA),(j,vB)))
+    val (aPart, bPart) = coPartition(A_byK, B_byK)
+    val joined = aPart.join(bPart) // (k, ((i,vA),(j,vB)))
 
     val products = joined.map {
       case (_, ((i, vA), (j, vB))) =>
@@ -216,53 +187,54 @@ object ExecutionEngine {
   }
 
   // ---------------------------------------------------------------------------
-  // 7) SpMM advanced: CSR (left) × CSC (right)
+  // 7) SpMM advanced: CSC × CSC
   //
-  // A: CSRMatrix (row-compressed)
-  // B: CSCMatrix (column-compressed)
-  //
-  // For every (row i, col j) pair, do a local merge-style dot product
-  // over the two sorted index lists. This is a clean CSR–CSC kernel.
-  // NOTE: cartesian may be expensive for very large #rows × #cols,
-  // so this is best for smaller matrices or as an "advanced layout" demo.
+  // A: CSC → columns: for each col k, (row=i, vA)
+  // B: CSC → columns: for each col j, (row=k, vB)
+  // we join on k
   // ---------------------------------------------------------------------------
-  def spmmCSRWithCSC(A: CSRMatrix, B: CSCMatrix): RDD[((Int, Int), Double)] = {
-    // A in CSR: expand each row i → (k,(i,vA))
-    val A_byK: RDD[(Int, (Int, Double))] = A.rows.flatMap { row =>
-      val i = row.row
-      val cols = row.colIdx
-      val vals = row.values
-      val out = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](cols.length)
+  def spmmCSC(A: CSCMatrix, B: CSCMatrix): RDD[((Int, Int), Double)] = {
+    // A → (k, (i, vA))   where k = A.col
+    val A_byK: RDD[(Int, (Int, Double))] = A.cols.flatMap { col =>
+      val k    = col.col
+      val rows = col.rowIdx
+      val vals = col.values
+      val out  = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](rows.length)
       var t = 0
-      while (t < cols.length) {
-        out += ((cols(t), (i, vals(t))))
+      while (t < rows.length) {
+        val i  = rows(t)
+        val vA = vals(t)
+        out += ((k, (i, vA)))
         t += 1
       }
       out
     }
 
-    // B in CSC: expand each column j → (k,(j,vB))
+    // B → (k, (j, vB))   where k = rowIdx of B's column j
     val B_byK: RDD[(Int, (Int, Double))] = B.cols.flatMap { col =>
-      val j = col.col
-      val rIdx = col.rowIdx
-      val v    = col.values
-      val out = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](rIdx.length)
+      val j    = col.col
+      val rows = col.rowIdx
+      val vals = col.values
+      val out  = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](rows.length)
       var t = 0
-      while (t < rIdx.length) {
-        out += ((rIdx(t), (j, v(t))))
+      while (t < rows.length) {
+        val k  = rows(t)   // shared dim
+        val vB = vals(t)
+        out += ((k, (j, vB)))
         t += 1
       }
       out
     }
 
-    // Co-partition to reduce shuffle, then join on k
     val (aPart, bPart) = coPartition(A_byK, B_byK)
     val joined = aPart.join(bPart) // (k, ((i,vA),(j,vB)))
 
-    // Multiply and accumulate to C(i,j)
-    val products = joined.map { case (_, ((i, vA), (j, vB))) => ((i, j), vA * vB) }
-    products.reduceByKey(_ + _)
+    val products = joined.map {
+      case (_, ((i, vA), (j, vB))) =>
+        ((i, j), vA * vB)
+    }
 
+    products.reduceByKey(_ + _)
   }
 
   // ---------------------------------------------------------------------------
@@ -270,13 +242,17 @@ object ExecutionEngine {
   // ---------------------------------------------------------------------------
   def spmm_dense(A: SparseMatrix, B: DenseMatrix): RDD[(Int, Array[Double])] = {
     val AkeyedByJ: RDD[(Int, (Int, Double))] = A.entries.map { case (i, j, v) => (j, (i, v)) }
-    val joined = AkeyedByJ.join(B.rows)  // <-- fix here
+    val joined = AkeyedByJ.join(B.rows)
 
-    val partials: RDD[(Int, Array[Double])] = joined.map { case (_, ((i, v), rowB)) =>
-      val out = new Array[Double](rowB.length)
-      var k = 0
-      while (k < rowB.length) { out(k) = rowB(k) * v; k += 1 }
-      (i, out)
+    val partials: RDD[(Int, Array[Double])] = joined.map {
+      case (_, ((i, v), rowB)) =>
+        val out = new Array[Double](rowB.length)
+        var k = 0
+        while (k < rowB.length) {
+          out(k) = rowB(k) * v
+          k += 1
+        }
+        (i, out)
     }
 
     partials.reduceByKey { (a, b) =>
@@ -291,7 +267,16 @@ object ExecutionEngine {
       }
       res
     }
-
   }
 
+  // ---------------------------------------------------------------------------
+  // 9) Deprecated / disallowed mixed-format SpMMs
+  // ---------------------------------------------------------------------------
+  @deprecated("Per coursework rubric, do not multiply different sparse formats. Use COO×COO, CSR×CSR, or CSC×CSC.", "PDSS-CW")
+  def spmmCSRWithCOO(A: CSRMatrix, B: SparseMatrix): RDD[((Int, Int), Double)] =
+    throw new UnsupportedOperationException("CSR × COO is not allowed per coursework rubric.")
+
+  @deprecated("Per coursework rubric, do not multiply different sparse formats. Use COO×COO, CSR×CSR, or CSC×CSC.", "PDSS-CW")
+  def spmmCSRWithCSC(A: CSRMatrix, B: CSCMatrix): RDD[((Int, Int), Double)] =
+    throw new UnsupportedOperationException("CSR × CSC is not allowed per coursework rubric.")
 }
