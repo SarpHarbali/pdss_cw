@@ -38,3 +38,10 @@ javaOptions ++= Seq(
 // Ensure test fork uses same options
 Test / fork := true
 Test / javaOptions ++= javaOptions.value
+
+Compile / run / fork := true
+
+Compile / run / javaOptions ++= Seq(
+  "--add-opens", "java.base/java.lang.invoke=ALL-UNNAMED"
+)
+
