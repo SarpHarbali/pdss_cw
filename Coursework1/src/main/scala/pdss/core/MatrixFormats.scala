@@ -20,3 +20,10 @@ case class CSRMatrix(rows: RDD[CSRRow], nRows: Long, nCols: Long)
 
 case class CSCCol(col: Int, rowIdx: Array[Int], values: Array[Double])
 case class CSCMatrix(cols: RDD[CSCCol], nRows: Long, nCols: Long)
+
+/** Generic sparse tensor stored in COO-style form. */
+case class SparseTensor(entries: RDD[(Array[Int], Double)], shape: Array[Int]) {
+    require(shape.nonEmpty, "Tensor must have at least one dimension")
+
+    val order: Int = shape.length
+}

@@ -1,7 +1,7 @@
 package pdss.io
 
 import org.apache.spark.SparkContext
-import pdss.core.{SparseMatrix, DistVector, CSRMatrix, CSRRow, CSCMatrix, CSCCol, DenseMatrix}
+import pdss.core.{SparseMatrix, DistVector, CSRMatrix, CSRRow, CSCMatrix, CSCCol, DenseMatrix, SparseTensor}
 import scala.util.Try
 
 object Loader {
@@ -118,6 +118,66 @@ object Loader {
     val numRows = lines.count()
     val numCols = rows.first()._2.length.toLong
     DenseMatrix(rows, numRows, numCols)
+  }
+  //////////////////
+  // Tensor shit ///
+  //////////////////
+  private val shapeRegex = "(?i)^#\\s*shape\\s*:(.*)$".r
+
+  /** Load an N-way sparse tensor stored as `[i1,i2,...,in,value]` per line with a `# Shape:` header. THANK YOU PIAZZA*/
+  def loadSparseTensor(sc: SparkContext, path: String): SparseTensor = {
+    val raw = sc.textFile(path)
+      .map(_.trim)
+      .filter(_.nonEmpty)
+
+    val shapeLine = raw
+      .filter(line => shapeRegex.pattern.matcher(line).matches())
+      .take(1)
+      .headOption
+      .getOrElse(throw new IllegalArgumentException(s"Missing `# Shape:` header in $path"))
+
+    val dims = shapeLine match {
+      case shapeRegex(rest) =>
+        rest.split("[,\\s]+").filter(_.nonEmpty).map(_.toInt)
+      case _ => throw new IllegalStateException("Unexpected shape header format")
+    }
+
+    val order = dims.length
+    require(order > 0, "Tensor shape must include at least one dimension")
+    val dimsLocal = dims
+
+    val entries = raw
+      .filter(line => !line.startsWith("#"))
+      .map { line =>
+        val parts = line.split("[,\\s]+").filter(_.nonEmpty)
+        if (parts.length != order + 1) {
+          throw new IllegalArgumentException(s"Tensor entry `$line` does not have $order indices plus value")
+        }
+
+        val idx = Array.ofDim[Int](order)
+        var m = 0
+        while (m < order) {
+          if (!isInt(parts(m))) {
+            throw new IllegalArgumentException(s"Index `${parts(m)}` is not an integer in `$line`")
+          }
+          val asInt = parts(m).toInt
+          if (asInt < 0 || asInt >= dimsLocal(m)) {
+            throw new IllegalArgumentException(s"Index $asInt out of bounds for mode $m with size ${dimsLocal(m)}")
+          }
+          idx(m) = asInt
+          m += 1
+        }
+
+        val valueStr = parts.last
+        if (!isDouble(valueStr)) {
+          throw new IllegalArgumentException(s"Value `$valueStr` is not numeric in `$line`")
+        }
+        val cell = valueStr.toDouble
+        (idx, cell)
+      }
+      .filter { case (_, value) => value != 0.0 }
+
+    SparseTensor(entries, dims)
   }
 
 }
