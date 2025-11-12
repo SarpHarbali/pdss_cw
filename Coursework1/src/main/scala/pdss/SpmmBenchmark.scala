@@ -25,8 +25,8 @@ object SpmmBenchmark {
     sc.setLogLevel("ERROR")
 
     // must match what DatasetGen produced
-    val sizes     = Seq(200, 500, 1000, 5000, 10000)
-    val densities = Seq(0.005, 0.010)
+    val sizes = Seq(250, 500, 750, 1000)
+    val densities = Seq(0.1, 0.2, 0.3)
 
     // CSV writer
     val outFile = new File("spmm_benchmark_results.csv")
@@ -50,8 +50,8 @@ object SpmmBenchmark {
     } {
       // force dot decimal in filename
       val densStr = f"$den%1.3f".replace(',', '.') // e.g. "0.005"
-      val pathA   = s"data/spmm_A_${n}_${densStr}.csv"
-      val pathB   = s"data/spmm_B_${n}_${densStr}.csv"
+      val pathA   = s"src/main/data/spmm_${n}_${densStr}_A.csv"
+      val pathB   = s"src/main/data/spmm_${n}_${densStr}_B.csv"
 
       val fileA = new File(pathA)
       val fileB = new File(pathB)
