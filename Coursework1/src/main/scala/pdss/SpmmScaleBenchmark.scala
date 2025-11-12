@@ -22,11 +22,11 @@ object SpmmScaleBenchmark {
     writer.println("threads,m,k,n,dens,partitions,outNNZ,elapsed_ms,speedup_vs_1,efficiency")
 
     // this MUST match what you already generated in data/
-    val n        = 10000
-    val dens     = 0.005
+    val n        = 1000
+    val dens     = 0.3
     // no f-string, no locale, just literal:
-    val pathA    = s"data/spmm_A_${n}_0.005.csv"
-    val pathB    = s"data/spmm_B_${n}_0.005.csv"
+    val pathA    = "src/main/data/spmm_1000_0.300_A.csv"
+    val pathB    = "src/main/data/spmm_1000_0.300_B.csv"
     val targetParts = 48
 
     println(s"🔎 will load: $pathA")
