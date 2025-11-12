@@ -59,14 +59,37 @@ object DatasetGen {
       println(s"✅ Wrote matrix $pathB with $nnz entries")
     }
 
-//    for (n <- sizes) {
-//      val rnd = new Random(123 + n)
-//      val values = (0 until n).map(j => (j, rnd.nextDouble() * 5))
-//      val path = s"$outDir/spmv_vec_${n}.csv"
-//      writeVec(path, values)
-//      println(s"✅ Wrote vector $path with ${values.size} entries")
-//    }
+    val chainDensities = Seq(0.1, 0.2, 0.3)
 
+    def densStr(d: Double): String = f"$d%.3f".replace(',', '.')
+
+    case class MatSpec(label: String, rows: Int, cols: Int, seedBase: Int)
+
+    val chainSpecs = Seq(
+      MatSpec("A", 50000, 10,   12021),
+      MatSpec("B",   10, 50000, 22021),
+      MatSpec("C", 50000, 10,   32021)
+    )
+
+    for (dens <- chainDensities; spec <- chainSpecs) {
+      val rows = spec.rows
+      val cols = spec.cols
+      val nnz = math.max(1, (rows.toLong * cols.toLong * dens).toInt)
+
+      // Stable random per matrix & density
+      val rnd = new Random(spec.seedBase + (dens * 1000).toInt)
+
+      val entries = (0 until nnz).map { _ =>
+        val i = rnd.nextInt(rows) // row index in [0, rows)
+        val j = rnd.nextInt(cols) // col index in [0, cols)
+        val v = rnd.nextDouble() * 10
+        (i, j, v)
+      }
+
+      val path = s"$outDir/spmm_chain_${spec.label}_${rows}x${cols}_${densStr(dens)}.csv"
+      writeCOO(path, entries)
+
+    }
     spark.stop()
     println(s"\n✅ All datasets written to $outDir/")
   }

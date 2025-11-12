@@ -32,6 +32,16 @@ object ExecutionEngine {
     val R = right.partitionBy(p).persist()
     (L, R)
   }
+  private def requireMulCompat(
+                                op: String,
+                                aRows: Long, aCols: Long,
+                                bRows: Long, bCols: Long
+                              ): Unit = {
+    require(
+      aCols == bRows,
+      s"Incompatible dimensions for $op: left is ${aRows}x${aCols}, right is ${bRows}x${bCols} (need left.nCols == right.nRows)"
+    )
+  }
 
   // ---------------------------------------------------------------------------
   // 1) SpMV: y = A * x  (COO × SparseVector)
@@ -54,6 +64,7 @@ object ExecutionEngine {
   // 2) SpMV advanced: y = A * x  (CSR × SparseVector)
   // ---------------------------------------------------------------------------
   def spmvCSR(A: CSRMatrix, x: DistVector): RDD[(Int, Double)] = {
+
     val AbyK: RDD[(Int, (Int, Double))] = A.rows.flatMap { row =>
       val i    = row.row
       val cols = row.colIdx
@@ -121,6 +132,8 @@ object ExecutionEngine {
   // join on k  →  ((i,j), vA*vB)  → reduceByKey
   // ---------------------------------------------------------------------------
   def spmm(A: SparseMatrix, B: SparseMatrix): RDD[((Int, Int), Double)] = {
+    requireMulCompat("spmmCSC (COO×COO)", A.nRows, A.nCols, B.nRows, B.nCols)
+
     val AbyK: RDD[(Int, (Int, Double))] =
       A.entries.map { case (i, k, vA) => (k, (i, vA)) }
 
@@ -147,6 +160,8 @@ object ExecutionEngine {
   // join on k
   // ---------------------------------------------------------------------------
   def spmmCSR(A: CSRMatrix, B: CSRMatrix): RDD[((Int, Int), Double)] = {
+    requireMulCompat("spmmCSC (CSR×CSR)", A.nRows, A.nCols, B.nRows, B.nCols)
+
     // A → (k, (i, vA))
     val A_byK: RDD[(Int, (Int, Double))] = A.rows.flatMap { row =>
       val i    = row.row
@@ -194,6 +209,8 @@ object ExecutionEngine {
   // we join on k
   // ---------------------------------------------------------------------------
   def spmmCSC(A: CSCMatrix, B: CSCMatrix): RDD[((Int, Int), Double)] = {
+    requireMulCompat("spmmCSC (CSC×CSC)", A.nRows, A.nCols, B.nRows, B.nCols)
+
     // A → (k, (i, vA))   where k = A.col
     val A_byK: RDD[(Int, (Int, Double))] = A.cols.flatMap { col =>
       val k    = col.col
@@ -241,6 +258,8 @@ object ExecutionEngine {
   // 8) SpMM: COO (left) x Dense (right)
   // ---------------------------------------------------------------------------
   def spmm_dense(A: SparseMatrix, B: DenseMatrix): RDD[(Int, Array[Double])] = {
+    requireMulCompat("spmmCSC (COO×Dense)", A.nRows, A.nCols, B.nRows, B.nCols)
+
     val AkeyedByJ: RDD[(Int, (Int, Double))] = A.entries.map { case (i, j, v) => (j, (i, v)) }
     val joined = AkeyedByJ.join(B.rows)
 
@@ -269,14 +288,5 @@ object ExecutionEngine {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // 9) Deprecated / disallowed mixed-format SpMMs
-  // ---------------------------------------------------------------------------
-  @deprecated("Per coursework rubric, do not multiply different sparse formats. Use COO×COO, CSR×CSR, or CSC×CSC.", "PDSS-CW")
-  def spmmCSRWithCOO(A: CSRMatrix, B: SparseMatrix): RDD[((Int, Int), Double)] =
-    throw new UnsupportedOperationException("CSR × COO is not allowed per coursework rubric.")
 
-  @deprecated("Per coursework rubric, do not multiply different sparse formats. Use COO×COO, CSR×CSR, or CSC×CSC.", "PDSS-CW")
-  def spmmCSRWithCSC(A: CSRMatrix, B: CSCMatrix): RDD[((Int, Int), Double)] =
-    throw new UnsupportedOperationException("CSR × CSC is not allowed per coursework rubric.")
 }

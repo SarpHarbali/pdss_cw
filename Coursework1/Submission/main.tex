@@ -481,10 +481,74 @@ This means that initially, increasing the number of partitions significantly imp
 
 
 \subsection{Further Ablation Studies}\label{subsec:ablation}
-\textcolor{red}{\textit{Show impact of each advanced optimization by turning them on/off systematically. Demonstrate the effectiveness of your advanced data layout optimizations and algebraic optimizations separately.}}
+
+\subsubsection{Chain Order Optimisation}
+
+\begin{figure}[h]
+  \centering
+    \includegraphics[width=0.45\textwidth]{figures/chain.png}
+  \caption{Runtime vs number of partitions.}
+  \label{fig:chain}
+\end{figure}
+
+\cref{fig:chain} shows the runtime for increasing matrix densities with the optimal and non-optimal chain ordering. The matrices used in this experiment are of the following size:
+\begin{itemize}
+    \item $A: 5000\times 10$
+    \item $B: 10\times 5000$
+    \item $C: 5000\times 10$
+\end{itemize}
+
+The experiments show that the optimal order remains consistently low in runtime, between 260-330 ms, across all densities. The non-optimal order, on the other hand, degrades dramatically as the density increases, going from 2.7s at 0.1 to 49s at 0.4 density.
+
+The reason for this difference is that the optimal order first computes $B\times C$, producing a small intermediate of $10\times 10$, which can be efficiently used in the second multiply. Conversely, the non-optimal order has an intermediate of $5000\times 5000$, which quickly becomes very dense as the input density rises, leading to a huge shuffle volume and slow second multiplication.
+
+This experiment validates that the chain order optimisation correctly identifies the optimal plan, minimising the overall runtime.
+
 
 \subsection{End-to-End System Evaluation}\label{subsec:end-to-end}
-\textcolor{red}{\textit{Complete system performance evaluation. Test on real-world applications that go beyond a single tensor operation, compare total execution time with baseline systems, report performance improvements, and analyze end-to-end system behavior.}}
+
+\subsubsection{Real World Application}
+
+To demonstrate the practical applicability of the execution engine beyond synthetic tensor operations, PageRank was implemented in Scala, which is a classic graph-based algorithm used in information retrieval and network analysis. The algorithm iteratively computes the distribution of a Markov chain representing web-page link structures, and it is widely used to rank web pages by importance, especially by Google until recently.
+
+The PageRank implementation was implemented entirely using the sparse matrix-vector multiplication (SpMV) implementation.
+
+The graph's adjacency structures was represented as a sparse matrix in COO format, where each edge $(u,v)$ contributed an entry $(u,v,1.0)$.
+
+The transition matrix $M=D^{-1}A$ was constructed by normalising rows by number of outgoing edges (outdegree).
+
+Each page rank iteration followed
+
+\[ r_{t+1}=\alphaM^Tr_t+(1-\alpha)1/N\]
+where $\alpha=0.85$
+
+Dangling nodes were handled directly in the engine to maintain mass conservation $(\Sigma  r\approx1)$.
+
+The algorithm was tested with a randomly generated directed graph of 100 nodes and 500 edges, with every node guaranteed to have at least five outgoing edges.
+
+Below is the output from the experiment.
+
+\begin{verbatim}
+Iterations: 10
+Sum of ranks ≈ 1,000000
+Top 10 nodes by PageRank:
+  node=   21   rank=2,067733e-02
+  node=   80   rank=2,024477e-02
+  node=   20   rank=1,950304e-02
+  node=   39   rank=1,784775e-02
+  node=   18   rank=1,658072e-02
+  node=   87   rank=1,578205e-02
+  node=    2   rank=1,551015e-02
+  node=   74   rank=1,506549e-02
+  node=   46   rank=1,502532e-02
+  node=   76   rank=1,484480e-02
+\end{verbatim}
+
+The experiment showed that the algorithm converged within 10 iterations, with the total rank mass $\approx 1.00$, confirming numerical stability. Top nodes reached rank values of about 0.02.
+
+This experiment demonstrates that the RDD implementation of matrix multiplication is not limited to standalone tensor multiplications but can also power higher-level workloads such as the PageRank algorithm.
+
+
 
 \textcolor{red}{\textit{Compare against alternative implementations or existing systems. Demonstrate the advantages of your approach.}}
 
