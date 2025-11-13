@@ -43,7 +43,7 @@ object SpmmBenchmark {
     import spark.implicits._
 
     println("SpMM benchmark (from ./data)")
-    println("m×n | dens | nnzA | nnzB | COO(ms) | CSR(ms) | DF(ms) | SQL(ms) | MLLIB(ms) | speedup(CSR/DF) | speedup(CSR/MLlib) | speedup(DF/MLlib)")
+    println("m×n | dens | nnzA | nnzB | COO(ms) | CSR(ms) | DF(ms) | speedup(CSR/DF)")
     println("---------------------------------------------------------------------------------------------------------------")
 
 
@@ -73,6 +73,8 @@ object SpmmBenchmark {
         val Acsr = Loader.cooToCSR(Acoo)
         val Bcsr = Loader.cooToCSR(Bcoo)
 
+        val Bcsc = Loader.cooToCSC(Bcoo)
+
         // ----------------------------------------------------
         // RDD: COO × COO
         // ----------------------------------------------------
@@ -86,7 +88,7 @@ object SpmmBenchmark {
         // RDD: CSR × CSR   (calls your existing engine method)
         // ----------------------------------------------------
         val t3 = nowMs
-        val csrRes   = ExecutionEngine.spmmCSR(Acsr, Bcsr)
+        val csrRes   = ExecutionEngine.spmmCSRWithCSC(Acsr, Bcsc)
         val csrCount = csrRes.count()
         val t4 = nowMs
         val rddCsrMs = t4 - t3
@@ -94,26 +96,15 @@ object SpmmBenchmark {
         // ----------------------------------------------------
         // DataFrame
         // ----------------------------------------------------
+
         val dfA = Acoo.entries.toDF("i", "k", "vA")
         val dfB = Bcoo.entries.toDF("k", "j", "vB")
 
-        val t5 = nowMs
-        val dfOut = dfA.join(dfB, "k")
-          .select($"i", $"j", ($"vA" * $"vB").as("prod"))
-          .groupBy($"i", $"j")
-          .agg(F.sum($"prod").as("value"))
-        val dfCount = dfOut.count()
-        val t6 = nowMs
-        val dfMs = t6 - t5
-
-        // ----------------------------------------------------
-        // SQL
-        // ----------------------------------------------------
         dfA.createOrReplaceTempView("A")
         dfB.createOrReplaceTempView("B")
 
         val t7 = nowMs
-        val sqlCount = spark.sql(
+        val dfCount = spark.sql(
           """
             |SELECT A.i AS i, B.j AS j, SUM(A.vA * B.vB) AS value
             |FROM A
@@ -122,48 +113,20 @@ object SpmmBenchmark {
             |""".stripMargin
         ).count()
         val t8 = nowMs
-        val sqlMs = t8 - t7
-
-        // ----------------------------------------------------
-        // MLlib: BlockMatrix × BlockMatrix
-        // ----------------------------------------------------
-        val blockSize = 256
-
-        // Build CoordinateMatrix from your COO RDDs
-        val coordA = new CoordinateMatrix(
-          Acoo.entries.map { case (i, k, v) => MatrixEntry(i.toLong, k.toLong, v) }
-        )
-        val coordB = new CoordinateMatrix(
-          Bcoo.entries.map { case (k, j, v) => MatrixEntry(k.toLong, j.toLong, v) }
-        )
-
-        // Convert to BlockMatrix
-        val bmA = coordA.toBlockMatrix(blockSize, blockSize)
-        val bmB = coordB.toBlockMatrix(blockSize, blockSize)
-
-        // Time multiply → force with count (like your other paths)
-        val t9 = nowMs
-        val bmC = bmA.multiply(bmB)
-        val mllibCount = bmC.toCoordinateMatrix().entries.count()
-        val t10 = nowMs
-        val mllibMs = t10 - t9
-
-        val csrVsMLlib     = if (mllibMs > 0) mllibMs.toDouble / rddCsrMs.toDouble else Double.NaN
-        val dfVsMLlib      = if (mllibMs > 0) mllibMs.toDouble / dfMs.toDouble     else Double.NaN
-
+        val dfMs = t8 - t7
 
         val csrSpeedup =
           if (rddCsrMs > 0) dfMs.toDouble / rddCsrMs.toDouble else Double.NaN
 
         println(
-          f"${n}x$n | $den%1.3f | $nnzA%6d | $nnzB%6d | $rddCooMs%7d | $rddCsrMs%7d | $dfMs%7d | $sqlMs%7d | $mllibMs%9d | $csrSpeedup%6.2f | $csrVsMLlib%6.2f | $dfVsMLlib%6.2f"
+          f"${n}x$n | $den%1.3f | $nnzA%6d | $nnzB%6d | $rddCooMs%7d | $rddCsrMs%7d | $dfMs%7d | $csrSpeedup%6.2f"
         )
 
         writer.println(
           s"$n,$n,$n,$den,$den,$nnzA,$nnzB," +
-            s"$rddCooMs,$rddCsrMs,$dfMs,$sqlMs,$mllibMs," +                    // + mllibMs
-            s"$cooCount,$csrCount,$dfCount,$sqlCount,$mllibCount," +           // + mllibCount
-            s"$csrSpeedup,$csrVsMLlib,$dfVsMLlib"
+            s"$rddCooMs,$rddCsrMs,$dfMs" +                    // + mllibMs
+            s"$cooCount,$csrCount,$dfCount" +           // + mllibCount
+            s"$csrSpeedup"
         )
       }
     }

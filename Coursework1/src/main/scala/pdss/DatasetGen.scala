@@ -15,8 +15,8 @@ object DatasetGen {
     val outDir = "src/main/data"
     new File(outDir).mkdirs()
 
-    val sizes = Seq(250, 500, 750, 1000, 1500, 3000)
-    val densities = Seq(0.1, 0.2, 0.3)
+    val sizes = Seq(5000, 10000)
+    val densities = Seq(0.001, 0.002)
 
     def writeCOO(path: String, entries: Seq[(Int, Int, Double)]): Unit = {
       val writer = new PrintWriter(new File(path))

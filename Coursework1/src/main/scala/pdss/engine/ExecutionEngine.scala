@@ -27,7 +27,7 @@ object ExecutionEngine {
       left: RDD[(Int, V)],
       right: RDD[(Int, W)]
   ): (RDD[(Int, V)], RDD[(Int, W)]) = {
-    val p = new HashPartitioner(left.sparkContext.defaultParallelism * 2)
+    val p = new HashPartitioner(16)
     val L = left.partitionBy(p).persist()
     val R = right.partitionBy(p).persist()
     (L, R)
@@ -134,15 +134,18 @@ object ExecutionEngine {
   def spmm(A: SparseMatrix, B: SparseMatrix): RDD[((Int, Int), Double)] = {
     requireMulCompat("spmmCSC (COO×COO)", A.nRows, A.nCols, B.nRows, B.nCols)
 
-    val AbyK: RDD[(Int, (Int, Double))] =
-      A.entries.map { case (i, k, vA) => (k, (i, vA)) }
+    val numParts =  16 // choose based on cluster & data size
 
-    val BbyK: RDD[(Int, (Int, Double))] =
-      B.entries.map { case (k, j, vB) => (k, (j, vB)) }
+    val AbyK = A.entries
+      .map { case (i, k, vA) => (k, (i, vA)) }
+      .partitionBy(new HashPartitioner(numParts))
+      .persist()
 
-    val (acp, bcp) = coPartition(AbyK, BbyK)
-
-    val joined = acp.join(bcp) // (k, ((i,vA),(j,vB)))
+    val BbyK = B.entries
+      .map { case (k, j, vB) => (k, (j, vB)) }
+      .partitionBy(AbyK.partitioner.get) // reuse
+      .persist()
+    val joined = AbyK.join(BbyK)  // Spark handles the shuffle
 
     val products = joined.map {
       case (_, ((i, vA), (j, vB))) =>
@@ -286,6 +289,45 @@ object ExecutionEngine {
       }
       res
     }
+  }
+
+  def spmmCSRWithCSC(A: CSRMatrix, B: CSCMatrix): RDD[((Int, Int), Double)] = {
+    // A in CSR: expand each row i → (k,(i,vA))
+    val A_byK: RDD[(Int, (Int, Double))] = A.rows.flatMap { row =>
+      val i = row.row
+      val cols = row.colIdx
+      val vals = row.values
+      val out = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](cols.length)
+      var t = 0
+      while (t < cols.length) {
+        out += ((cols(t), (i, vals(t))))
+        t += 1
+      }
+      out
+    }
+
+    // B in CSC: expand each column j → (k,(j,vB))
+    val B_byK: RDD[(Int, (Int, Double))] = B.cols.flatMap { col =>
+      val j = col.col
+      val rIdx = col.rowIdx
+      val v    = col.values
+      val out = new scala.collection.mutable.ArrayBuffer[(Int, (Int, Double))](rIdx.length)
+      var t = 0
+      while (t < rIdx.length) {
+        out += ((rIdx(t), (j, v(t))))
+        t += 1
+      }
+      out
+    }
+
+    // Co-partition to reduce shuffle, then join on k
+    val (aPart, bPart) = coPartition(A_byK, B_byK)
+    val joined = aPart.join(bPart) // (k, ((i,vA),(j,vB)))
+
+    // Multiply and accumulate to C(i,j)
+    val products = joined.map { case (_, ((i, vA), (j, vB))) => ((i, j), vA * vB) }
+    products.reduceByKey(_ + _)
+
   }
 
 
