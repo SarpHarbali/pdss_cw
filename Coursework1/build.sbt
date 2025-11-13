@@ -12,6 +12,7 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-core" % "3.0.3",
   "org.apache.spark" %% "spark-sql" % "3.0.3",
   "junit" % "junit" % "4.10" % Test,
+  "org.apache.spark" %% "spark-mllib" % "3.0.3",
   "org.scalatest" %% "scalatest" % "3.2.9" % Test
 )
 
@@ -39,3 +40,10 @@ javaOptions ++= Seq(
 // Ensure test fork uses same options
 Test / fork := true
 Test / javaOptions ++= javaOptions.value
+
+Compile / run / fork := true
+
+Compile / run / javaOptions ++= Seq(
+  "--add-opens", "java.base/java.lang.invoke=ALL-UNNAMED"
+)
+

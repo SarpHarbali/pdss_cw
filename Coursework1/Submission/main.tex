@@ -9,10 +9,16 @@
 \usepackage{array}
 \usepackage{longtable}
 \usepackage{xcolor}
+\usepackage{subcaption}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{float}
 \usepackage{listings}
+\usepackage{subfig}
+\usepackage{graphicx}
+\usepackage{cleveref}
+\crefname{figure}{Figure}{Figures}
+
 
 
 \title{PDSS Project: A Distributed Engine for Large-Scale Sparse Matrix and Tensor Algebra}
@@ -72,17 +78,17 @@ Tensor Algebra & \multicolumn{2}{l}{(e.g., MTTKRP)} & \\
 
 \subsubsection{Data Loading Mechanisms}
 
-The system supports multiple input formats and performs fully distributed loading using Apache Spark.  
+The system supports multiple input formats and performs fully distributed loading using Apache Spark.
 Matrices can be loaded from either:
 \begin{itemize}
-  \item \textbf{COO triplet files:} Each line stores a non-zero entry as \texttt{(row, col, value)}.  
+  \item \textbf{COO triplet files:} Each line stores a non-zero entry as \texttt{(row, col, value)}.
         These are parsed directly into \texttt{RDD[(Int, Int, Double)]} tuples.
-  \item \textbf{Dense CSV files:} Each line represents a row of the matrix.  
+  \item \textbf{Dense CSV files:} Each line represents a row of the matrix.
         During parsing, zero values are filtered out to form a sparse COO representation automatically.
   \item \textbf{Vector files:} Stored as \texttt{(index, value)} pairs for distributed vectors.
 \end{itemize}
 
-All data are loaded using \texttt{SparkContext.textFile()}, which partitions files across workers.  
+All data are loaded using \texttt{SparkContext.textFile()}, which partitions files across workers.
 Each worker parses its own lines, so large CSV or TSV inputs are processed in parallel without collecting the full dataset.
 ---
 
@@ -104,18 +110,18 @@ The system’s baseline layout is the \textbf{Coordinate (COO)} format:
 \[
 \texttt{RDD[(Int, Int, Double)]} \;\Rightarrow\; (i, j, v)
 \]
-Each record represents one non-zero element.  
+Each record represents one non-zero element.
 This format maps directly to Spark’s key–value model, enabling distributed joins on row or column indices for \texttt{SpMV} and \texttt{SpMM} operations.
 
 \subsubsection{Justification}
 
-\textbf{COO} is chosen as the default layout because it is simple, flexible, and directly compatible with distributed key-based operations.  
-It supports both row- and column-keyed joins without preprocessing.  
+\textbf{COO} is chosen as the default layout because it is simple, flexible, and directly compatible with distributed key-based operations.
+It supports both row- and column-keyed joins without preprocessing.
  \textbf{DenseMatrix} and \textbf{DistVector} provide contiguous layouts for non-sparse data.
 
 Together, these formats balance scalability, memory efficiency, and performance across different matrix operations and workload patterns.
 
-\subsubsection{Data Distribution Example:} 
+\subsubsection{Data Distribution Example:}
 
 
 A $3 \times 4$ sparse matrix:
@@ -145,9 +151,9 @@ Each partition performs local operations on its subset of non-zeros before globa
 
 \subsubsection{Overview}
 
-The runtime engine is built entirely on \textbf{low-level RDD transformations} without using Spark \texttt{DataFrames} or \texttt{Datasets}.  
-Each operation is expressed as a sequence of \texttt{map}, \texttt{flatMap}, \texttt{join}, and \texttt{reduceByKey} transformations, ensuring full control over data distribution and shuffle behaviour.  
-No operation ever invokes \texttt{collect()} or any driver-side materialisation of large RDDs.  
+The runtime engine is built entirely on \textbf{low-level RDD transformations} without using Spark \texttt{DataFrames} or \texttt{Datasets}.
+Each operation is expressed as a sequence of \texttt{map}, \texttt{flatMap}, \texttt{join}, and \texttt{reduceByKey} transformations, ensuring full control over data distribution and shuffle behaviour.
+No operation ever invokes \texttt{collect()} or any driver-side materialisation of large RDDs.
 All intermediate and final results remain distributed until a terminal action such as \texttt{count()} or \texttt{saveAsTextFile()} is called.
 
 The runtime supports four distributed kernels:
@@ -167,7 +173,7 @@ y_i = \sum_j A_{ij} x_j
 \]
 is computed as follows:
 \begin{enumerate}
-  \item \textbf{Join:} The matrix is keyed by its column index $j$ and joined with the vector on the same key:  
+  \item \textbf{Join:} The matrix is keyed by its column index $j$ and joined with the vector on the same key:
   \texttt{A.entries.map((j,(i,v))).join(x.values)}.
   \item \textbf{Map:} Each joined pair emits a partial result \texttt{(i, v * xj)}.
   \item \textbf{Aggregation:} Partial values are summed per row index using \texttt{reduceByKey(\_+\_)}.
@@ -178,7 +184,7 @@ This join-based strategy scales efficiently with matrix sparsity and avoids broa
 \begin{lstlisting}[language=Scala]
 def spmv(A: SparseMatrix, x: DistVector): RDD[(Int, Double)] = {
   val Akeyed = A.entries.map { case (i, j, v) => (j, (i, v)) }
-  val joined = Akeyed.join(x.values)            
+  val joined = Akeyed.join(x.values)
   joined.map { case (_, ((i, v), xj)) => (i, v * xj) }
         .reduceByKey(_ + _)
 }
@@ -187,7 +193,7 @@ def spmv(A: SparseMatrix, x: DistVector): RDD[(Int, Double)] = {
 
 \subsubsection{SpMV: Sparse Matrix × Dense Vector}
 
-When the vector is dense, the runtime instead uses a \texttt{Broadcast} variable.  
+When the vector is dense, the runtime instead uses a \texttt{Broadcast} variable.
 Each partition accesses the dense array directly:
 \[
 y_i = \sum_j A_{ij} \cdot x_j
@@ -278,7 +284,7 @@ def spmm_dense(A: SparseMatrix, B: DenseMatrix): RDD[(Int, Array[Double])] = {
 
 \subsubsection{Summary}
 
-Across all kernels, the engine translates high-level algebraic operations into explicit distributed pipelines built solely on RDD primitives.  
+Across all kernels, the engine translates high-level algebraic operations into explicit distributed pipelines built solely on RDD primitives.
 By combining careful keying, co-partitioning, and broadcast optimisation, the runtime executes efficiently at scale while adhering strictly to Spark’s distributed dataflow model.
 
 
@@ -290,28 +296,28 @@ By combining careful keying, co-partitioning, and broadcast optimisation, the ru
 
 \subsubsection{Overview}
 
-The runtime includes several distributed optimisation strategies aimed at reducing network communication, achieving better data locality, and maintaining load balance across Spark executors.  
-All optimisations are implemented within the RDD abstraction layer, without relying on Spark’s Catalyst optimizer or DataFrame-level physical plans.  
+The runtime includes several distributed optimisation strategies aimed at reducing network communication, achieving better data locality, and maintaining load balance across Spark executors.
+All optimisations are implemented within the RDD abstraction layer, without relying on Spark’s Catalyst optimizer or DataFrame-level physical plans.
 The focus is on explicit control of partitioning, co-location, persistence, and broadcast use to improve scalability and throughput for large sparse workloads.
 
 ---
 
 \subsubsection{Partitioning and Co-location}
 
-Matrix and vector RDDs are partitioned by integer keys corresponding to their join dimension.  
+Matrix and vector RDDs are partitioned by integer keys corresponding to their join dimension.
 For operations such as \texttt{SpMM(A,B)}, both operands are re-keyed on the shared index $k$ and then explicitly co-partitioned using a custom \texttt{HashPartitioner}:
 \[
 (A_k, B_k) \;\Rightarrow\; \texttt{partitionBy(new HashPartitioner(p))}
 \]
-This ensures that entries sharing the same $k$ value reside on the same executor before the join.  
-Co-location drastically reduces shuffle overhead by converting expensive all-to-all exchanges into partition-local joins.  
+This ensures that entries sharing the same $k$ value reside on the same executor before the join.
+Co-location drastically reduces shuffle overhead by converting expensive all-to-all exchanges into partition-local joins.
 The partitioner size is tuned to \texttt{defaultParallelism × 5} to balance task granularity and scheduling overhead.
 
 ---
 
 \subsubsection{Shuffle Minimisation}
 
-Shuffle operations are the dominant cost in distributed matrix computations.  
+Shuffle operations are the dominant cost in distributed matrix computations.
 The engine avoids unnecessary reshuffling by:
 \begin{itemize}
   \item Applying co-partitioning prior to joins.
@@ -324,31 +330,31 @@ These optimisations collectively reduce the volume of intermediate data transfer
 
 \subsubsection{Load Balancing for Irregular Sparsity}
 
-Sparse matrices with uneven non-zero distributions can cause workload imbalance.  
-By using key-based partitioning on the join dimension rather than fixed row blocks, the engine spreads dense regions (hot columns or rows) across multiple executors.  
+Sparse matrices with uneven non-zero distributions can cause workload imbalance.
+By using key-based partitioning on the join dimension rather than fixed row blocks, the engine spreads dense regions (hot columns or rows) across multiple executors.
 This dynamic hashing ensures that dense rows or columns do not create straggler tasks while keeping shuffle boundaries consistent.
 
 ---
 
 \subsubsection{Caching and Persistence}
 
-Matrices that are reused across multiple operations (e.g., chain multiplications or repeated SpMV calls) are explicitly persisted using Spark’s \texttt{persist()} API with memory-level storage.  
-Intermediate RDDs after partitioning or joining are also cached where reuse is expected.  
+Matrices that are reused across multiple operations (e.g., chain multiplications or repeated SpMV calls) are explicitly persisted using Spark’s \texttt{persist()} API with memory-level storage.
+Intermediate RDDs after partitioning or joining are also cached where reuse is expected.
 This reduces recomputation and I/O overhead, trading modest memory use for substantial performance gains.
 
 ---
 
 \subsubsection{Broadcast Variables}
 
-When one operand is small and dense (e.g., a dense vector or narrow dense matrix), it is broadcast to all executors using \texttt{sc.broadcast()}.  
-This allows each worker to access the data locally within map transformations, avoiding shuffles entirely.  
+When one operand is small and dense (e.g., a dense vector or narrow dense matrix), it is broadcast to all executors using \texttt{sc.broadcast()}.
+This allows each worker to access the data locally within map transformations, avoiding shuffles entirely.
 The \texttt{spmvCooWithDense} kernel uses this strategy to multiply a sparse matrix by a dense vector efficiently.
 
 ---
 
 \subsubsection{Summary}
 
-Together, these optimisations—co-partitioning, shuffle minimisation, load-balanced hashing, caching, and broadcast use—enable efficient distributed execution while preserving full scalability.  
+Together, these optimisations—co-partitioning, shuffle minimisation, load-balanced hashing, caching, and broadcast use—enable efficient distributed execution while preserving full scalability.
 The runtime achieves reduced data movement, improved locality, and consistent task distribution across Spark’s parallel architecture.
 
 
@@ -368,20 +374,181 @@ The runtime achieves reduced data movement, improved locality, and consistent ta
 
 \subsection{Experimental Setup}
 
-\textcolor{red}{\textit{Document your experimental setup: hardware platform, software environment, test datasets, baseline system(s) you compare against, metrics you measured, and measurement methodology.}}
+\subsubsection{Hardware Platform}
+
+All experiments were executed on a local machine with the following specifications:
+
+\begin{itemize}
+    \item CPU: Apple M4 (10-core, including 4 performance and 6 efficiency cores)
+    \item Memory: 16 GB unified RAM
+    \item Storage: SSD
+    \item Operating System: MacOS 15.5
+\end{itemize}
+
+Each experiment was run in local[*] mode, utilising all available cores for Spark executions.
+
+The system was kept idle during measurements to reduce background variability.
+
+\subsubsection{Software Environment}
+
+\begin{itemize}
+    \item Scala Version: 2.12.20
+    \item Spark Version: 3.0.3
+    \item Java Runtime: OpenJDK 11
+\end{itemize}
+
+\subsubsection{Test Datasets}
+
+Synthetic matrices were generated using a custom Scala generation file (DatasetGen.Scala).
+
+\begin{itemize}
+    \item Matrix Sizes ($m\times m$): 250,500,750,1000
+    \item Densities: 0.1, 0.2, 0.3 (fraction of non-zero elements in the sparse matrix
+    \item Format: COO (Coordinate List) representation, stored as CSV files.
+\end{itemize}
+
+\subsubsection{Metrics}
+
+The performance metric measured was execution time in miliseconds for computing
+\[ C = A \times B\]
 
 \subsection{Microbenchmark Results}\label{subsec:microbenchmarks}
 
-\textcolor{red}{\textit{Present your microbenchmark results focusing on comparing against SparkSQL's DataFrame. Include results for different matrix sizes and sparsity levels, speedup achieved by your optimizations, and analysis of performance characteristics.}}
+\begin{figure}[h]
+  \centering
+
+  \begin{subfigure}[b]{0.32\textwidth}  % 1/3 of text width
+    \centering
+    \includegraphics[width=\textwidth]{figures/runtime_vs_size_density_0_1.png}
+    \caption{Density=0.1}
+    \label{fig:0.1}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/runtime_vs_size_density_0_2.png}
+    \caption{Density=0.2}
+    \label{fig:0.2}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/runtime_vs_size_density_0_3.png}
+    \caption{Density=0.3}
+    \label{fig:0.3}
+  \end{subfigure}
+
+  \caption{Effect of matrix size on runtime for different matrix densities.}
+  \label{fig:runtime_vs_size}
+\end{figure}
+\cref{fig:runtime_vs_size} compares the runtime of matrix multiplication using the RDD-COO implementation and Spark’s DataFrame API as the matrix size increases (from 250 × 250 to 1000 × 1000) under three fixed sparsity levels: 0.1, 0.2, and 0.3.
+This design isolates the effect of matrix size on scalability while holding density constant.
+
+The general trend for all densities is that while the RDD implementation excels at lower matrix sizes, the SQL DataFrame implementation works more efficiently with large matrices. This is especially evident in \cref{fig:0.1}, where the DataFrame implementation is 4 times slower than RDD for $m=250$, but quickly catches up, having almost the same runtime for $m=1000$. Furthermore, it can also be seen that the RDD implementation is more efficient compared to DataFrame in lower densities. Looking at all three figures, the DataFrame implementation either gets close to, or beats the RDD implementation at a certain matrix size. However, the matrix size at which this happens decreases as the density increases, going from $m=1000$ at $density=0.1$ to $m=750$ at $density=0.2$ and $m=500$ at $density=0.3$. This means that for lower matrix sizes and densities, where there is less amount of data, RDD performs better, while DataFrame excels in higher matrix sizes and densities. This can be explained by the way each implementation works.
+
+This behaviour can be explained by the execution characteristics of the two approaches.
+The RDD implementation relies on key-based joins and reduceByKey aggregations over sparse coordinate tuples. When the data is highly sparse, these operations are lightweight and parallelised efficiently across partitions, resulting in minimal shuffle overhead. However, as matrix size or density increases, the shuffle and join costs dominate, making the RDD execution increasingly expensive.
+
+In contrast, the DataFrame API leverages Spark’s Catalyst optimizer and Tungsten execution engine, which apply whole-stage code generation, vectorised processing, and optimized memory management. These features introduce fixed overheads at small scales but yield substantial performance benefits when handling large or dense datasets.
 
 \subsection{Impact of Distributed Optimizations}\label{subsec:distributed-impact}
-\textcolor{red}{\textit{Measure the effectiveness of your distributed optimizations. Present your scalability analysis: how performance scales with the number of workers/threads, execution time, speedup, and efficiency measurements, and analysis of scaling limits and bottlenecks.}}
+
+\subsubsection{Impact of Number of Threads}
+
+\begin{figure}[h]
+  \centering
+    \includegraphics[width=0.45\textwidth]{figures/thread_sweep.png}
+  \caption{Speedup vs thread count.}
+  \label{fig:thread}
+\end{figure}
+
+\cref{fig:thread} shows the speedup of the RDD-based SpMM implementation with increasing thread count, for a $1000\times 1000$ sparse matrix with 0.3 density. Looking at the plot, it can be seen that increasing the number of threds decreases the runtime, as a general trend. The performance improves up to 4 threads, reaching almost a 2.25x speedup. This indicates that the workload is successfully parallelised across cores. At 8 threads, however, the performance drops to a speedup of only 1.73x. This suggests that the overhead introduced by thread management and scheduling starts to outweigh the benefits of parallelism. For this matrix size and density, 4 threads seem to provide the optimal balance between computation and overhead.
+
+\subsubsection{Impact of Number of Partitions}
+
+\begin{figure}[h]
+  \centering
+    \includegraphics[width=0.45\textwidth]{figures/partition_sweep_runtime.png}
+  \caption{Runtime vs number of partitions.}
+  \label{fig:partitions}
+\end{figure}
+
+\cref{fig:partitions} shows the runtime of the RDD implementation with increasing number of partitions (8, 16, 32, 64, and 128). For this experiment, the thread count was kept constant at 8, and the input data was a $3000\times 3000$ sparse matrix with $density=0.2$. The experiment shows that while the runtime decreased with higher partitions, the improvements diminished as the number of partitions increased, almost flattening at 128 partitions. Most of the gains were already realised by 32-64 partitions.
+
+This means that initially, increasing the number of partitions significantly improved the load balancing across 8 cores, while too many partitions added scheduling and shuffle overhead, offering marginal benefits.
+
+
+
 
 \subsection{Further Ablation Studies}\label{subsec:ablation}
-\textcolor{red}{\textit{Show impact of each advanced optimization by turning them on/off systematically. Demonstrate the effectiveness of your advanced data layout optimizations and algebraic optimizations separately.}}
+
+\subsubsection{Chain Order Optimisation}
+
+\begin{figure}[h]
+  \centering
+    \includegraphics[width=0.45\textwidth]{figures/chain.png}
+  \caption{Runtime vs number of partitions.}
+  \label{fig:chain}
+\end{figure}
+
+\cref{fig:chain} shows the runtime for increasing matrix densities with the optimal and non-optimal chain ordering. The matrices used in this experiment are of the following size:
+\begin{itemize}
+    \item $A: 5000\times 10$
+    \item $B: 10\times 5000$
+    \item $C: 5000\times 10$
+\end{itemize}
+
+The experiments show that the optimal order remains consistently low in runtime, between 260-330 ms, across all densities. The non-optimal order, on the other hand, degrades dramatically as the density increases, going from 2.7s at 0.1 to 49s at 0.4 density.
+
+The reason for this difference is that the optimal order first computes $B\times C$, producing a small intermediate of $10\times 10$, which can be efficiently used in the second multiply. Conversely, the non-optimal order has an intermediate of $5000\times 5000$, which quickly becomes very dense as the input density rises, leading to a huge shuffle volume and slow second multiplication.
+
+This experiment validates that the chain order optimisation correctly identifies the optimal plan, minimising the overall runtime.
+
 
 \subsection{End-to-End System Evaluation}\label{subsec:end-to-end}
-\textcolor{red}{\textit{Complete system performance evaluation. Test on real-world applications that go beyond a single tensor operation, compare total execution time with baseline systems, report performance improvements, and analyze end-to-end system behavior.}}
+
+\subsubsection{Real World Application}
+
+To demonstrate the practical applicability of the execution engine beyond synthetic tensor operations, PageRank was implemented in Scala, which is a classic graph-based algorithm used in information retrieval and network analysis. The algorithm iteratively computes the distribution of a Markov chain representing web-page link structures, and it is widely used to rank web pages by importance, especially by Google until recently.
+
+The PageRank implementation was implemented entirely using the sparse matrix-vector multiplication (SpMV) implementation.
+
+The graph's adjacency structures was represented as a sparse matrix in COO format, where each edge $(u,v)$ contributed an entry $(u,v,1.0)$.
+
+The transition matrix $M=D^{-1}A$ was constructed by normalising rows by number of outgoing edges (outdegree).
+
+Each page rank iteration followed
+
+\[ r_{t+1}=\alphaM^Tr_t+(1-\alpha)1/N\]
+where $\alpha=0.85$
+
+Dangling nodes were handled directly in the engine to maintain mass conservation $(\Sigma  r\approx1)$.
+
+The algorithm was tested with a randomly generated directed graph of 100 nodes and 500 edges, with every node guaranteed to have at least five outgoing edges.
+
+Below is the output from the experiment.
+
+\begin{verbatim}
+Iterations: 10
+Sum of ranks ≈ 1,000000
+Top 10 nodes by PageRank:
+  node=   21   rank=2,067733e-02
+  node=   80   rank=2,024477e-02
+  node=   20   rank=1,950304e-02
+  node=   39   rank=1,784775e-02
+  node=   18   rank=1,658072e-02
+  node=   87   rank=1,578205e-02
+  node=    2   rank=1,551015e-02
+  node=   74   rank=1,506549e-02
+  node=   46   rank=1,502532e-02
+  node=   76   rank=1,484480e-02
+\end{verbatim}
+
+The experiment showed that the algorithm converged within 10 iterations, with the total rank mass $\approx 1.00$, confirming numerical stability. Top nodes reached rank values of about 0.02.
+
+This experiment demonstrates that the RDD implementation of matrix multiplication is not limited to standalone tensor multiplications but can also power higher-level workloads such as the PageRank algorithm.
+
+
 
 \textcolor{red}{\textit{Compare against alternative implementations or existing systems. Demonstrate the advantages of your approach.}}
 
