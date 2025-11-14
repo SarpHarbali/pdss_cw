@@ -7,17 +7,15 @@ import org.apache.spark.rdd.RDD
 import pdss.core._
 import pdss.engine.{ExecutionEngine, TensorEngine}
 
-
 object LinearAlgebraAPI {
-
 
   sealed trait SparseFormat
   object SparseFormat {
     case object COO extends SparseFormat
     case object CSR extends SparseFormat
     case object CSC extends SparseFormat
+    case object CSR_CSC extends SparseFormat
   }
-
 
   def spmv(
       A: SparseMatrix,
@@ -40,7 +38,6 @@ object LinearAlgebraAPI {
       x: Array[Double],
       useCSR: Boolean
   )(implicit sc: SparkContext): DistVector = {
-
     val xBroadcast: Broadcast[Array[Double]] = sc.broadcast(x)
 
     val result: RDD[(Int, Double)] =
@@ -67,16 +64,18 @@ object LinearAlgebraAPI {
     val resultPairs: RDD[((Int, Int), Double)] = format match {
       case SparseFormat.COO =>
         ExecutionEngine.spmm(A, B)
-
       case SparseFormat.CSR =>
         val csrA = pdss.io.Loader.cooToCSR(A)
         val csrB = pdss.io.Loader.cooToCSR(B)
         ExecutionEngine.spmmCSR(csrA, csrB)
-
       case SparseFormat.CSC =>
         val cscA = pdss.io.Loader.cooToCSC(A)
         val cscB = pdss.io.Loader.cooToCSC(B)
         ExecutionEngine.spmmCSC(cscA, cscB)
+      case SparseFormat.CSR_CSC =>
+        val csrA = pdss.io.Loader.cooToCSR(A)
+        val cscB = pdss.io.Loader.cooToCSC(B)
+        ExecutionEngine.spmmCSRWithCSC(csrA, cscB)
     }
 
     val entries: RDD[(Int, Int, Double)] =
@@ -84,7 +83,6 @@ object LinearAlgebraAPI {
 
     SparseMatrix(entries, nRows = A.nRows, nCols = B.nCols)
   }
-
 
   def spmm(
       A: SparseMatrix,
@@ -99,7 +97,7 @@ object LinearAlgebraAPI {
       ExecutionEngine.spmm_dense(A, B)
 
     DenseMatrix(
-      rows  = resultRows,
+      rows = resultRows,
       nRows = A.nRows,
       nCols = B.nCols
     )
@@ -140,7 +138,7 @@ object LinearAlgebraAPI {
     val nRows: Long = tensor.shape(targetMode).toLong
 
     DenseMatrix(
-      rows  = rows,
+      rows = rows,
       nRows = nRows,
       nCols = rank
     )
