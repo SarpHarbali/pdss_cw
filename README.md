@@ -15,21 +15,25 @@ Distributed sparse linear algebra and tensor engine implemented on Apache Spark.
 
 ## Build & Test
 
+To test tensor algebra:
 ```powershell
-cd Coursework1
+cd Coursework
 sbt test
 ```
+`TensorEngineTest` spins up its own `SparkContext`, creates synthetic tensors, and compares MTTKRP outputs to a naive CPU baseline.
 
-Useful focused commands:
+
+To test the main logic, and run benchmarks:
 
 ```powershell
-cd Coursework1
-sbt "testOnly pdss.TensorEngineTest"     # tensor algebra suite
-sbt "testOnly pdss.FrontendTests"        # API-level smoke tests
-sbt run                                   # executes pdss.Main (SpMM chain benchmark)
+cd Coursework
+sbt run   # choose which benchmark or test to run
 ```
-
-All tests run locally with Spark `local[*]`. `TensorEngineTest` spins up its own `SparkContext`, creates synthetic tensors, and compares MTTKRP outputs to a naive CPU baseline.
+Alternatively, 
+```powershell
+cd Coursework
+sbt "runMain pdss.<Benchmark file name>"
+```
 
 ## Project Layout
 
@@ -112,12 +116,11 @@ Internally these calls map to the execution-engine methods and stay entirely on 
 
 ## Sample Benchmarks & Utilities
 
-- `pdss.Main`: demonstrates SpMM chain planning (`ChainPlanner`) and runtime comparison of multiplication orders.
+- `pdss.Main`: demonstrates SpMM chain planning (`ChainPlanner`)
 - `pdss.PartitionBenchmark`, `pdss.SpmmBenchmark`, `pdss.SpmmScaleBenchmark`, `pdss.SpmvBenchmarkFromData`: benchmarking utilities to study partitioning, scaling, and format trade-offs.
 - `pdss.TensorMttkrpBenchmark`: compares COO streaming vs fiber-compressed (CSF) MTTKRP implementations on synthetic tensors and writes `tensor_mttkrp_results.csv`.
 - `pdss.DatasetGen`: generates random COO matrices/vectors in `data/` for experiments. Run via `sbt "runMain pdss.DatasetGen"`.
 
-Each benchmark has its own `main` method; invoke with `sbt "runMain <fully.qualified.Object>"`.
 
 ### Tensor Benchmark Usage
 
