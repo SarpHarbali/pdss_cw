@@ -114,9 +114,19 @@ Internally these calls map to the execution-engine methods and stay entirely on 
 
 - `pdss.Main`: demonstrates SpMM chain planning (`ChainPlanner`) and runtime comparison of multiplication orders.
 - `pdss.PartitionBenchmark`, `pdss.SpmmBenchmark`, `pdss.SpmmScaleBenchmark`, `pdss.SpmvBenchmarkFromData`: benchmarking utilities to study partitioning, scaling, and format trade-offs.
+- `pdss.TensorMttkrpBenchmark`: compares COO streaming vs fiber-compressed (CSF) MTTKRP implementations on synthetic tensors and writes `tensor_mttkrp_results.csv`.
 - `pdss.DatasetGen`: generates random COO matrices/vectors in `data/` for experiments. Run via `sbt "runMain pdss.DatasetGen"`.
 
 Each benchmark has its own `main` method; invoke with `sbt "runMain <fully.qualified.Object>"`.
+
+### Tensor Benchmark Usage
+
+```powershell
+cd Coursework1
+sbt "runMain pdss.TensorMttkrpBenchmark"
+```
+
+Optional overrides can be provided as CLI flags, e.g. `--shape=256,256,256 --density=0.0003 --rank=48 --target=1 --trials=5`. Results list per-trial runtimes for both the naive COO path (`TensorEngine.mttkrpCoo`) and the CSF-based implementation (`TensorEngine.mttkrp`) so you can report speedups directly from the generated CSV.
 
 ## Troubleshooting
 

@@ -316,6 +316,31 @@ class TensorEngineTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll 
 		result shouldBe empty
 	}
 
+	it should "produce the same output for COO and CSF implementations" in {
+		val entries = Seq(
+			(Array(0, 0, 0), 0.8),
+			(Array(0, 1, 1), 1.1),
+			(Array(1, 0, 1), 2.4),
+			(Array(1, 1, 0), 3.3)
+		)
+		val tensor = sparseTensorFrom(entries, shape = Array(2, 2, 2))
+
+		val factor0 = Array(Array(0.6, 1.0, 0.3), Array(0.9, 0.2, 1.1))
+		val factor1 = Array(Array(1.2, 0.7, 0.5), Array(0.4, 0.8, 1.3))
+		val factor2 = Array(Array(0.5, 1.4, 0.6), Array(1.0, 0.3, 0.9))
+		val factorMatrices = Array(factor0, factor1, factor2).map(denseMatrixFrom)
+
+		val targetMode = 1
+		val csf = TensorEngine.mttkrp(tensor, factorMatrices, targetMode).collect().toMap
+		val coo = TensorEngine.mttkrpCoo(tensor, factorMatrices, targetMode).collect().toMap
+
+		csf.keySet shouldBe coo.keySet
+		csf.foreach { case (idx, csfRow) =>
+			val cooRow = coo(idx)
+			csfRow.zip(cooRow).foreach { case (lhs, rhs) => lhs shouldBe (rhs +- 1e-6) }
+		}
+	}
+
 	it should "integrate with LinearAlgebraAPI" in {
 		val entries = Seq(
 			(Array(0, 0, 0), 1.0),

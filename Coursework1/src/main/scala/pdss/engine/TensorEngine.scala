@@ -8,6 +8,68 @@ import scala.collection.mutable
 
 object TensorEngine {
 
+  // COO implementation  for benchmarking against CSF
+  def mttkrpCoo(
+      tensor: SparseTensor,
+      factorMatrices: Seq[DenseMatrix],
+      targetMode: Int
+  ): RDD[(Int, Array[Double])] = {
+    require(factorMatrices.length == tensor.order, "Need one factor matrix per tensor mode")
+    require(targetMode >= 0 && targetMode < tensor.order, s"Target mode $targetMode outside tensor order ${tensor.order}")
+
+    val rank = factorMatrices.headOption.map(_.nCols.toInt).getOrElse {
+      throw new IllegalArgumentException("At least one factor matrix is required")
+    }
+
+    factorMatrices.foreach { mat =>
+      require(mat.nCols == rank, "All factor matrices must have the same column count (rank)")
+    }
+
+    factorMatrices.zipWithIndex.foreach { case (mat, mode) =>
+      require(mat.nRows == tensor.shape(mode).toLong, s"Factor matrix for mode $mode has ${mat.nRows} rows, expected ${tensor.shape(mode)}")
+    }
+
+    val processModes = (0 until tensor.order).filter(_ != targetMode)
+    val partitioner = new HashPartitioner(math.max(1, tensor.entries.partitions.length * 2))
+
+    var partial: RDD[(Vector[Int], Array[Double])] = tensor.entries
+      .map { case (indices, value) =>
+        val accum = Array.fill(rank)(value)
+        (indices.toVector, accum)
+      }
+      .partitionBy(partitioner)
+
+    processModes.foreach { mode =>
+      val factorRows = factorMatrices(mode).rows.partitionBy(partitioner)
+      partial = partial
+        .map { case (indices, accum) =>
+          val idx = indices(mode)
+          (idx, (indices, accum))
+        }
+        .join(factorRows)
+        .map { case (_, ((indices, accum), rowValues)) =>
+          var r = 0
+          while (r < accum.length) {
+            accum(r) *= rowValues(r)
+            r += 1
+          }
+          (indices, accum)
+        }
+        .partitionBy(partitioner)
+    }
+
+    partial
+      .map { case (indices, accum) => (indices(targetMode), accum) }
+      .reduceByKey(partitioner, (left, right) => {
+        var r = 0
+        while (r < left.length) {
+          left(r) += right(r)
+          r += 1
+        }
+        left
+      })
+  }
+
 
   def mttkrp(tensor: SparseTensor,
              factorMatrices: Seq[DenseMatrix],
