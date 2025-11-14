@@ -9,6 +9,7 @@ import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import pdss.core.{DenseMatrix, SparseTensor}
 import pdss.engine.TensorEngine
+import pdss.frontend.LinearAlgebraAPI
 
 class TensorEngineTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
 
@@ -77,8 +78,8 @@ class TensorEngineTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll 
 	}
 
 	private def naiveMttkrp(entries: Seq[(Array[Int], Double)],
-													factors: Array[Array[Array[Double]]],
-													targetMode: Int): Map[Int, Array[Double]] = {
+												factors: Array[Array[Array[Double]]],
+												targetMode: Int): Map[Int, Array[Double]] = {
 		require(factors.nonEmpty, "At least one factor matrix required for naive check")
 		val rank = factors.head.head.length
 		val acc = scala.collection.mutable.Map.empty[Int, Array[Double]]
@@ -211,6 +212,134 @@ class TensorEngineTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll 
 
 		intercept[IllegalArgumentException] {
 			TensorEngine.mttkrp(tensor, Seq(factor, factor, factor), targetMode = 3)
+		}
+	}
+
+	it should "handle duplicate entries within a fiber" in {
+        val entries = Seq(
+            (Array(0, 0, 0), 1.0),
+            (Array(0, 0, 0), 2.5),
+            (Array(1, 1, 0), 3.0)
+        )
+        val tensor = sparseTensorFrom(entries, shape = Array(2, 2, 1))
+
+        val factor0 = Array(Array(1.0, 0.5), Array(0.4, 1.2))
+        val factor1 = Array(Array(1.0, 0.3), Array(0.9, 1.1))
+        val factor2 = Array(Array(1.0, 1.0))
+        val factors = Array(factor0, factor1, factor2).map(denseMatrixFrom)
+
+        val expected = naiveMttkrp(entries, Array(factor0, factor1, factor2), targetMode = 0)
+        val actual = TensorEngine.mttkrp(tensor, factors, targetMode = 0).collect().toMap
+
+        actual.keySet shouldBe expected.keySet
+        actual.foreach { case (idx, row) =>
+            row.zip(expected(idx)).foreach { case (out, exp) => out shouldBe (exp +- 1e-6) }
+        }
+    }
+
+	it should "handle skewed prefixes and empty partitions" in {
+        val repeated = Seq.fill(50)((Array(0, 0, 0), 1.0))
+        val sparse = Seq((Array(1, 1, 1), 2.0))
+        val entries = (repeated ++ sparse).zipWithIndex.map { case (e, i) =>
+            (e._1, e._2 * (1 + i % 3).toDouble)
+         }.map { case (coords, value) => (coords, value) }
+
+        val rdd = sc.parallelize(entries, numSlices = 16) // force many empty partitions
+        val tensor = SparseTensor(rdd, shape = Array(2, 2, 2))
+
+        val factor0 = Array(Array(0.6, 1.1, 0.2), Array(1.4, 0.5, 0.9))
+        val factor1 = Array(Array(0.3, 0.8, 1.0), Array(1.2, 0.7, 0.4))
+        val factor2 = Array(Array(0.5, 1.3, 0.6), Array(0.9, 0.2, 1.1))
+        val factorsData = Array(factor0, factor1, factor2)
+        val factorMatrices = factorsData.map(denseMatrixFrom)
+
+        val expected = naiveMttkrp(entries, factorsData, targetMode = 2)
+        val actual = TensorEngine.mttkrp(tensor, factorMatrices, targetMode = 2).collect().toMap
+
+        actual.keySet shouldBe expected.keySet
+        actual.foreach { case (idx, row) =>
+            row.zip(expected(idx)).foreach { case (out, exp) => out shouldBe (exp +- 1e-5) }
+        }
+    }
+
+	it should "support higher-order tensors" in {
+		val entries = Seq(
+			(Array(0, 0, 0, 0), 1.5),
+			(Array(1, 1, 1, 2), 2.0),
+			(Array(0, 1, 0, 1), 0.75),
+			(Array(1, 0, 1, 0), 3.2)
+		)
+		val shape = Array(2, 2, 2, 3)
+		val tensor = sparseTensorFrom(entries, shape)
+
+		val factor0 = Array(
+			Array(0.9, 0.1, 0.4),
+			Array(1.2, 0.3, 0.7)
+		)
+		val factor1 = Array(
+			Array(0.5, 0.8, 0.6),
+			Array(1.1, 0.4, 0.2)
+		)
+		val factor2 = Array(
+			Array(0.7, 0.6, 1.0),
+			Array(0.9, 1.3, 0.5)
+		)
+		val factor3 = Array(
+			Array(0.3, 0.4, 0.9),
+			Array(1.4, 0.2, 0.1),
+			Array(0.8, 1.1, 0.5)
+		)
+		val factorsData = Array(factor0, factor1, factor2, factor3)
+		val factorMatrices = factorsData.map(denseMatrixFrom)
+
+		val targetMode = 2
+		val expected = naiveMttkrp(entries, factorsData, targetMode)
+		val actual = TensorEngine.mttkrp(tensor, factorMatrices, targetMode).collect().toMap
+
+		actual.keySet shouldBe expected.keySet
+		actual.foreach { case (idx, row) =>
+			row.zip(expected(idx)).foreach { case (out, exp) => out shouldBe (exp +- 1e-6) }
+		}
+	}
+
+	it should "return empty output for empty tensors" in {
+		val entries = Seq.empty[(Array[Int], Double)]
+		val shape = Array(2, 3, 1)
+		val tensor = sparseTensorFrom(entries, shape)
+
+		val factor0 = Array(Array(1.0, 0.2, 0.8), Array(0.6, 0.4, 1.1))
+		val factor1 = Array(Array(0.9, 1.3, 0.7), Array(0.5, 0.2, 0.6), Array(1.4, 0.1, 0.3))
+		val factor2 = Array(Array(0.8, 0.9, 1.0))
+		val factorMatrices = Array(factor0, factor1, factor2).map(denseMatrixFrom)
+
+		val result = TensorEngine.mttkrp(tensor, factorMatrices, targetMode = 1).collect()
+		result shouldBe empty
+	}
+
+	it should "integrate with LinearAlgebraAPI" in {
+		val entries = Seq(
+			(Array(0, 0, 0), 1.0),
+			(Array(0, 1, 1), 0.5),
+			(Array(1, 0, 1), 2.0)
+		)
+		val tensor = sparseTensorFrom(entries, shape = Array(2, 2, 2))
+
+		val factor0 = Array(Array(0.6, 1.0, 0.3), Array(0.9, 0.2, 1.1))
+		val factor1 = Array(Array(1.2, 0.7, 0.5), Array(0.4, 0.8, 1.3))
+		val factor2 = Array(Array(0.5, 1.4, 0.6), Array(1.0, 0.3, 0.9))
+		val factorsData = Array(factor0, factor1, factor2)
+		val factorMatrices = factorsData.map(denseMatrixFrom)
+
+		val expected = naiveMttkrp(entries, factorsData, targetMode = 1)
+		val actual = LinearAlgebraAPI
+			.mttkrp(tensor, factorMatrices, targetMode = 1)
+			.rows
+			.collect()
+			.toMap
+
+		actual.keySet shouldBe expected.keySet
+		actual.foreach { case (idx, row) =>
+			row.zip(expected(idx)).foreach { case (out, exp) => out shouldBe (exp +- 1e-6) }
 		}
 	}
 }
