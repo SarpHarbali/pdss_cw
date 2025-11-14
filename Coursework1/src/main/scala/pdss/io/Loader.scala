@@ -113,9 +113,7 @@ object Loader {
     val numCols = rows.first()._2.length.toLong
     DenseMatrix(rows, numRows, numCols)
   }
-  //////////////////
-  // Tensor shit ///
-  //////////////////
+
   private val shapeRegex = "(?i)^#\\s*shape\\s*:(.*)$".r
 
   /** Load an N-way sparse tensor stored as `[i1,i2,...,in,value]` per line with a `# Shape:` header. THANK YOU PIAZZA*/

@@ -40,7 +40,7 @@ class TensorEngineTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll 
 		}
 		super.afterAll()
 	}
-    // WINDOWS SHIT. IT KEEPS BREAKING MAY GOD HAVE MERCY ON MY SOUL
+
 	private def ensureWinutilsStub(): Unit = {
 		val isWindows = System.getProperty("os.name").toLowerCase(java.util.Locale.ENGLISH).contains("win")
 		if (!isWindows) return
