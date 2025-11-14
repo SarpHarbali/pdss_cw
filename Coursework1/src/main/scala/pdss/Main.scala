@@ -25,9 +25,9 @@ object Main extends App {
 
   val sc = new SparkContext(conf)
 
-  val A = Loader.loadCSVToCOO(sc, "src/main/data/sparse_matrix_normal.csv")
-  val B = Loader.loadCSVToCOO(sc, "src/main/data/sparse_matrix_normal2.csv")
-  val C = Loader.loadCSVToCOO(sc, "src/main/data/sparse_matrix_normal3.csv")
+  val A = Loader.loadCSVToCOO(sc, "data/sparse_matrix_normal.csv")
+  val B = Loader.loadCSVToCOO(sc, "data/sparse_matrix_normal2.csv")
+  val C = Loader.loadCSVToCOO(sc, "data/sparse_matrix_normal3.csv")
 
   val plan = ChainPlanner.chooseOrder3(A, B, C)
   println(s"Chosen plan: ${plan.order}")

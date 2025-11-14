@@ -41,7 +41,7 @@ object MLLib {
     val sc = new SparkContext(conf)
     sc.setLogLevel("WARN")
 
-    val baseDir = "src/main/data"
+    val baseDir = "data"
 
     val sizes = Seq(2500, 5000, 7500, 10000)
 

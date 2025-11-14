@@ -15,7 +15,7 @@ object ExecutionEngine {
       left: RDD[(Int, V)],
       right: RDD[(Int, W)]
   ): (RDD[(Int, V)], RDD[(Int, W)]) = {
-    val p = new HashPartitioner(16)
+    val p = new HashPartitioner(64)
     val L = left.partitionBy(p).persist()
     val R = right.partitionBy(p).persist()
     (L, R)

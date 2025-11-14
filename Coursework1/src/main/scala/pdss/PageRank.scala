@@ -24,7 +24,7 @@ object PageRank extends App {
   import java.io.File
   import scala.io.Source
 
-  val pathAdj = "src/main/data/pagerankfile.csv"
+  val pathAdj = "data/pagerankfile.csv"
   val abs = new File(pathAdj).getAbsolutePath
   val A = Loader.loadCOO(sc, abs)
   val n: Long = A.nRows

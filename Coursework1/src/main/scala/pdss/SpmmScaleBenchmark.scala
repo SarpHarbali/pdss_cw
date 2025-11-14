@@ -21,8 +21,8 @@ object SpmmScaleBenchmark {
 
     val n        = 1000
     val dens     = 0.3
-    val pathA    = "src/main/data/spmm_1000_0.300_A.csv"
-    val pathB    = "src/main/data/spmm_1000_0.300_B.csv"
+    val pathA    = "data/spmm_1000_0.300_A.csv"
+    val pathB    = "data/spmm_1000_0.300_B.csv"
     val targetParts = 48
 
     println(s" will load: $pathA")

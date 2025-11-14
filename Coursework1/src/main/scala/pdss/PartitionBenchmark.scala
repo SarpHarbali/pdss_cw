@@ -8,8 +8,8 @@ import pdss.io.Loader
 
 object PartitionBenchmark extends App {
 
-  val pathA = "src/main/data/spmm_3000_0.200_A.csv"
-  val pathB = "src/main/data/spmm_3000_0.200_B.csv"
+  val pathA = "data/spmm_3000_0.200_A.csv"
+  val pathB = "data/spmm_3000_0.200_B.csv"
   val threads = 8
   val trials = 1
   val partsToTest = List(8, 16, 32, 64, 128)

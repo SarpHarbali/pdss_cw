@@ -48,8 +48,8 @@ object SpmmBenchmark {
       den <- densities
     } {
       val densStr = f"$den%1.3f"
-      val pathA   = s"src/main/data/spmm_${n}_${densStr}_A.csv".replace(',', '.')
-      val pathB   = s"src/main/data/spmm_${n}_${densStr}_B.csv".replace(',', '.')
+      val pathA   = s"data/spmm_${n}_${densStr}_A.csv".replace(',', '.')
+      val pathB   = s"data/spmm_${n}_${densStr}_B.csv".replace(',', '.')
 
       val fileA = new File(pathA)
       val fileB = new File(pathB)

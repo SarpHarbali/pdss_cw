@@ -54,9 +54,9 @@ object ChainOrderBenchmark {
 
     densities.foreach { dens =>
       val suffix = dstr(dens)
-      val pathA = s"src/main/data/chain_matrix_${suffix}_A.csv"
-      val pathB = s"src/main/data/chain_matrix_${suffix}_B.csv"
-      val pathC = s"src/main/data/chain_matrix_${suffix}_C.csv"
+      val pathA = s"data/chain_matrix_${suffix}_A.csv"
+      val pathB = s"data/chain_matrix_${suffix}_B.csv"
+      val pathC = s"data/chain_matrix_${suffix}_C.csv"
 
       val A = Loader.loadCSVToCOO(sc, pathA)
       val B = Loader.loadCSVToCOO(sc, pathB)

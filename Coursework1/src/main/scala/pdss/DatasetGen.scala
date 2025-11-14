@@ -12,7 +12,7 @@ object DatasetGen {
     val sc = spark.sparkContext
     sc.setLogLevel("ERROR")
 
-    val outDir = "src/main/data"
+    val outDir = "data"
     new File(outDir).mkdirs()
 
     val sizes = Seq(5000, 10000)
