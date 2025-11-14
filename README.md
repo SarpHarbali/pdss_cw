@@ -1,68 +1,125 @@
-# PDSS Project: A Distributed Engine for Large-Scale Sparse Matrix and Tensor Algebra
+# PDSS Coursework 1
 
-This project is a high-performance, distributed execution engine for large-scale sparse linear algebra operations (SpMV, SpMM) and tensor algebra (MTTKRP), built on Apache Spark's RDD primitives.
+Distributed sparse linear algebra and tensor engine implemented on Apache Spark. The project exposes a user-facing API (`pdss.frontend.LinearAlgebraAPI`) and a distributed execution layer (`pdss.engine.ExecutionEngine` / `TensorEngine`) that cover:
 
-The engine optimizes memory usage by leveraging the nature of sparse data and parallelizes computations across a cluster using Spark's distributed `join` and `reduceByKey` operations.
+- Sparse Matrix–Vector multiplication (SpMV) for both dense and sparse vectors, and COO / CSR storage.
+- Sparse Matrix–Matrix multiplication (SpMM) across COO, CSR, CSC and mixed formats plus sparse–dense products.
+- Tensor algebra via MTTKRP (Matricized Tensor Times Khatri-Rao Product) on multi-way sparse tensors.
 
-## ✨ Key Features
+## Requirements
 
-* **SpMV Support:** Sparse Matrix x (Dense Vector or Sparse Vector) multiplication.
-* **SpMM Support:** Sparse Matrix x (Dense Matrix or Sparse Matrix) multiplication.
-* **Tensor Support:** Mode-n MTTKRP (Matricized Tensor Times Khatri-ao Product) for sparse tensors.
-* **Data Ingestion:** Flexible data loading from COO (coordinate triplets), dense CSVs, and vector files.
-* **Optimizations:**
-    * Use of custom `HashPartitioner` for data co-location.
-    * Internal support for CSR (Compressed Sparse Row) / CSC (Compressed Sparse Column) formats for efficient computation.
-    * A simple cost-based optimizer for chained matrix multiplications via the `spmmChain3` method.
-    * Smart caching (`persist()`) for RDDs that are reused.
+- Java 17 (Adoptium Temurin 17.0.x recommended).
+- sbt 1.11.x (auto-configured via `project/build.properties`).
+- Spark dependencies are pulled automatically (`spark-core`, `spark-sql`, `spark-mllib` 3.0.3).
+- Windows users should ensure `winutils.exe` is on the path or let the tests create the temporary stub.
 
----
+## Build & Test
 
-## ⚙️ Tech Stack
+```powershell
+cd Coursework1
+sbt test
+```
 
-* **Language:** Scala (v2.12.20)
-* **Framework:** Apache Spark (v3.0.3)
-* **Platform:** Java 11 (OpenJDK)
-* **Build Tool:** `sbt` (Scala Build Tool) is recommended.
+Useful focused commands:
 
----
+```powershell
+cd Coursework1
+sbt "testOnly pdss.TensorEngineTest"     # tensor algebra suite
+sbt "testOnly pdss.FrontendTests"        # API-level smoke tests
+sbt run                                   # executes pdss.Main (SpMM chain benchmark)
+```
 
-## 🚀 Setup and Getting Started
+All tests run locally with Spark `local[*]`. `TensorEngineTest` spins up its own `SparkContext`, creates synthetic tensors, and compares MTTKRP outputs to a naive CPU baseline.
 
-Follow these steps to build and run the project on your local machine.
+## Project Layout
 
-### Prerequisites
+- `src/main/scala/pdss/core`: core data structures (`SparseMatrix`, `DenseMatrix`, `SparseTensor`, CSR/CSC helpers).
+- `src/main/scala/pdss/engine`: execution engines for matrices (`ExecutionEngine`), tensors (`TensorEngine`), and planners/benchmarks.
+- `src/main/scala/pdss/frontend`: `LinearAlgebraAPI` – user-facing operations wrapping the engines.
+- `src/test/scala/pdss`: ScalaTest suites including `TensorEngineTest`.
+- `data/`: CSV inputs produced by `DatasetGen` (COO triplets and vectors) used by demos/benchmarks.
 
-1.  **Java 11 (or higher):**
-    * Ensure you have JDK 11 installed.
-    * You can check the version with `java -version`.
-2.  **Apache Spark 3.0.3:**
-    * Download `spark-3.0.3-bin-hadoop2.7` from the [official Spark archive](https://archive.apache.org/dist/spark/spark-3.0.3/).
-    * Extract the archive to a directory (e.g., `/opt/spark/`).
-    * Add the `SPARK_HOME` environment variable to your `.bashrc` or `.zshrc`:
-        ```bash
-        export SPARK_HOME=/path/to/spark-3.0.3-bin-hadoop2.7
-        export PATH=$SPARK_HOME/bin:$PATH
-        ```
-3.  **sbt (Scala Build Tool):**
-    * `sbt` is required to compile Scala projects. Follow the installation instructions on the [official website](https://www.scala-sbt.org/download.html).
+## Data & Input Formats
 
-### Building the Project
+| Structure        | Expected shape | Backing RDD payload |
+|------------------|----------------|---------------------|
+| `SparseMatrix`   | `nRows × nCols` | `RDD[(rowIdx: Int, colIdx: Int, value: Double)]` (COO) |
+| `DenseMatrix`    | `nRows × nCols` | `RDD[(rowIdx: Int, rowValues: Array[Double])]` |
+| `DistVector`     | `length`        | `RDD[(index: Int, value: Double)]` |
+| `SparseTensor`   | `shape: Array[Int]` (one entry per mode) | `RDD[(coords: Array[Int], value: Double)]` |
 
-1.  Clone the repository:
-    ```bash
-    git clone git@github.com:SarpHarbali/pdss_cw.git
-    cd pdss-project
-    ```
+**Tensor inputs** must always carry the full `shape`, even if the tensor has zero entries. Every factor matrix supplied to `TensorEngine.mttkrp` must:
 
-2.  Use `sbt` to compile the project and create a `.jar` package:
-    ```bash
-    sbt clean package
-    ```
-    This command will download dependencies (spark-core, spark-sql, etc.) and package your project into a JAR file under the `target/scala-2.12/` directory.
+1. Correspond to one tensor mode (same ordering as `shape`).
+2. Have `nRows == shape(mode)`.
+3. Share the same number of columns (the rank `R`).
 
----
+The target mode is a 0-based index selecting which mode’s rows the output spans. These constraints are enforced via `require(...)` statements, so mis-specified inputs fail fast with descriptive errors.
 
-## 💻 Usage and Execution
+## Tensor Algebra Example
 
-The main interface for the project is the `LinearAlgebraAPI` object. Computations are triggered by calling methods on this object.
+```scala
+import org.apache.spark.{SparkConf, SparkContext}
+import pdss.core.{DenseMatrix, SparseTensor}
+import pdss.frontend.LinearAlgebraAPI
+
+val conf = new SparkConf().setMaster("local[2]").setAppName("MTTKRP-demo")
+val sc   = new SparkContext(conf)
+
+val tensorEntries = Seq(
+  (Array(0, 0, 0), 1.0),
+  (Array(0, 1, 1), 0.5),
+  (Array(1, 0, 1), 2.0)
+)
+val tensor = SparseTensor(sc.parallelize(tensorEntries), shape = Array(2, 2, 2))
+
+val factorRows = Seq(
+  Array(Array(0.6, 1.0), Array(0.9, 0.2)),  // mode-0
+  Array(Array(1.2, 0.7), Array(0.4, 0.8)),  // mode-1
+  Array(Array(0.5, 1.4), Array(1.0, 0.3))   // mode-2
+)
+val factors = factorRows.map { rows =>
+  val indexed = rows.zipWithIndex.map { case (row, idx) => (idx, row) }
+  DenseMatrix(sc.parallelize(indexed), rows.length, rows.head.length)
+}
+
+val result = LinearAlgebraAPI.mttkrp(tensor, factors, targetMode = 1)
+result.rows.collect().foreach { case (modeIdx, values) =>
+  println(s"row=$modeIdx -> ${values.mkString(", ")}")
+}
+
+sc.stop()
+```
+
+`LinearAlgebraAPI.mttkrp` returns a `DenseMatrix` whose rows correspond to the target mode; the code above collects it only because the example tensor is tiny. Avoid `collect()` for real workloads.
+
+## Matrix Operations from the Frontend
+
+```scala
+import pdss.frontend.LinearAlgebraAPI
+import pdss.frontend.LinearAlgebraAPI.SparseFormat._
+
+val A: SparseMatrix = Loader.loadCSVToCOO(sc, "data/sparse_matrix_normal.csv")
+val xDense: Array[Double] = Array(2.0, 0.0, 1.0)
+val y = LinearAlgebraAPI.spmv(A, xDense, useCSR = true)(sc)
+
+val B: SparseMatrix = Loader.loadCSVToCOO(sc, "data/sparse_matrix_normal2.csv")
+val C = LinearAlgebraAPI.spmm(A, B, format = CSR)
+val D = LinearAlgebraAPI.spmm(A, DenseMatrix(...))                  // sparse × dense
+```
+
+Internally these calls map to the execution-engine methods and stay entirely on RDDs; no large `collect()` is performed.
+
+## Sample Benchmarks & Utilities
+
+- `pdss.Main`: demonstrates SpMM chain planning (`ChainPlanner`) and runtime comparison of multiplication orders.
+- `pdss.PartitionBenchmark`, `pdss.SpmmBenchmark`, `pdss.SpmmScaleBenchmark`, `pdss.SpmvBenchmarkFromData`: benchmarking utilities to study partitioning, scaling, and format trade-offs.
+- `pdss.DatasetGen`: generates random COO matrices/vectors in `data/` for experiments. Run via `sbt "runMain pdss.DatasetGen"`.
+
+Each benchmark has its own `main` method; invoke with `sbt "runMain <fully.qualified.Object>"`.
+
+## Troubleshooting
+
+- **Missing winutils on Windows**: The tensor tests auto-create a temporary stub under `%TEMP%/spark-hadoop...`. You can also manually set `HADOOP_HOME` to a folder containing `bin/winutils.exe`.
+- **Out-of-memory**: Adjust the `javaOptions` and `Test / javaOptions` in `build.sbt` (current defaults: `-Xms4G`, `-Xmx8G`).
+- **Dataset paths**: Benchmarks expect files under `data/`. Run `DatasetGen` or adjust the paths in the corresponding `Main` objects.
