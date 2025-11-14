@@ -116,7 +116,7 @@ Internally these calls map to the execution-engine methods and stay entirely on 
 
 ## Sample Benchmarks & Utilities
 
-- `pdss.Main`: demonstrates SpMM chain planning (`ChainPlanner`)
+- `pdss.Main`: can run the pipeline by calling LinearAlgebraAPI. Currently demonstrates the chain order functionality (`ChainPlanner`).
 - `pdss.PartitionBenchmark`, `pdss.SpmmBenchmark`, `pdss.SpmmScaleBenchmark`, `pdss.SpmvBenchmarkFromData`: benchmarking utilities to study partitioning, scaling, and format trade-offs.
 - `pdss.TensorMttkrpBenchmark`: compares COO streaming vs fiber-compressed (CSF) MTTKRP implementations on synthetic tensors and writes `tensor_mttkrp_results.csv`.
 - `pdss.DatasetGen`: generates random COO matrices/vectors in `data/` for experiments. Run via `sbt "runMain pdss.DatasetGen"`.
