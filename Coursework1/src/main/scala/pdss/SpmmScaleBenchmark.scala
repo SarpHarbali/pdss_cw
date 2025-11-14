@@ -13,24 +13,20 @@ object SpmmScaleBenchmark {
 
   def main(args: Array[String]): Unit = {
 
-    // we test with 1,2,4,8 threads
     val threadLevels = Seq(1, 2, 4, 8)
 
-    // CSV out
     val outFile = new File("spmm_scale_results.csv")
     val writer  = new PrintWriter(outFile)
     writer.println("threads,m,k,n,dens,partitions,outNNZ,elapsed_ms,speedup_vs_1,efficiency")
 
-    // this MUST match what you already generated in data/
     val n        = 1000
     val dens     = 0.3
-    // no f-string, no locale, just literal:
     val pathA    = "src/main/data/spmm_1000_0.300_A.csv"
     val pathB    = "src/main/data/spmm_1000_0.300_B.csv"
     val targetParts = 48
 
-    println(s"🔎 will load: $pathA")
-    println(s"🔎 will load: $pathB")
+    println(s" will load: $pathA")
+    println(s" will load: $pathB")
     println("threads | outNNZ | elapsed(ms) | speedup | eff")
     println("------------------------------------------------")
 
@@ -47,19 +43,15 @@ object SpmmScaleBenchmark {
       val sc    = spark.sparkContext
       sc.setLogLevel("ERROR")
 
-      // --- load matrices from disk (COO) ---
       val Araw = Loader.loadCOO(sc, pathA)
       val Braw = Loader.loadCOO(sc, pathB)
 
-      // repartition + cache
       val A = SparseMatrix(Araw.entries.repartition(targetParts).cache(), Araw.nRows, Araw.nCols)
       val B = SparseMatrix(Braw.entries.repartition(targetParts).cache(), Braw.nRows, Braw.nCols)
 
-      // materialize cache (not timed)
       A.entries.count()
       B.entries.count()
 
-      // time SpMM (COO × COO)
       val t0 = nowMs
       val C  = ExecutionEngine.spmm(A, B)
       val outCount = C.count()
@@ -81,6 +73,6 @@ object SpmmScaleBenchmark {
     }
 
     writer.close()
-    println(s"\n✅ SpMM scale results saved to ${outFile.getAbsolutePath}")
+    println(s"\n SpMM scale results saved to ${outFile.getAbsolutePath}")
   }
 }

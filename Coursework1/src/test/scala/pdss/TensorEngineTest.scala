@@ -10,7 +10,6 @@ import org.scalatest.matchers.should.Matchers
 import pdss.core.{DenseMatrix, SparseTensor}
 import pdss.engine.TensorEngine
 
-/** Lightweight Spark-driven regression tests for MTTKRP. */
 class TensorEngineTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
 
 	private var sc: SparkContext = _
@@ -41,12 +40,11 @@ class TensorEngineTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll 
 		}
 		super.afterAll()
 	}
-    // WINDOWS SHIT. HOLY FUCK IT KEEPS BREAKING MAY GOD HAVE MERCY ON MY SOUL
+    // WINDOWS SHIT. IT KEEPS BREAKING MAY GOD HAVE MERCY ON MY SOUL
 	private def ensureWinutilsStub(): Unit = {
 		val isWindows = System.getProperty("os.name").toLowerCase(java.util.Locale.ENGLISH).contains("win")
 		if (!isWindows) return
 
-		// Spark on Windows expects Hadoop's winutils.exe; drop a temp stub so tests can start.
 		val alreadySet = Option(System.getProperty("hadoop.home.dir"))
 			.exists(path => new File(path, "bin/winutils.exe").exists())
 		if (alreadySet) return
@@ -81,7 +79,6 @@ class TensorEngineTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll 
 	private def naiveMttkrp(entries: Seq[(Array[Int], Double)],
 													factors: Array[Array[Array[Double]]],
 													targetMode: Int): Map[Int, Array[Double]] = {
-		// Deterministic single-node reference used to validate the distributed implementation.
 		require(factors.nonEmpty, "At least one factor matrix required for naive check")
 		val rank = factors.head.head.length
 		val acc = scala.collection.mutable.Map.empty[Int, Array[Double]]

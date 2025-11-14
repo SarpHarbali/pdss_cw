@@ -22,19 +22,15 @@ object FrontendTests {
       testSpmmSparseDense(sc)
       testCsvLoaderSpmv(sc)
       testTensorMttkrpSimple(sc)
-      println("\n✅ All frontend tests passed.")
+      println("\n All frontend tests passed.")
     } finally {
       sc.stop()
     }
   }
 
-  // -----------------------------------------------------------
-  // 1) SpMV: COO vs CSR, sparse vs dense
-  // -----------------------------------------------------------
   def testSpmvSparseVsDense(sc: SparkContext): Unit = {
     println("Running testSpmvSparseVsDense...")
 
-    // A = 3x3 matrix like your synthetic one
     val triples = sc.parallelize(Seq(
       (0, 0, 1.0),
       (0, 2, 2.0),
@@ -44,7 +40,6 @@ object FrontendTests {
     ))
     val A = SparseMatrix(triples, nRows = 3, nCols = 3)
 
-    // x_sparse = [2,0,1], x_dense = same
     val xSparse = DistVector(sc.parallelize(Seq(
       (0, 2.0),
       (2, 1.0)
@@ -52,28 +47,23 @@ object FrontendTests {
 
     val xDense = Array(2.0, 0.0, 1.0)
 
-    // COO × sparse
     val y_coo_sparse = LinearAlgebraAPI
       .spmv(A, xSparse, useCSR = false)
       .values.collect().toMap
 
-    // CSR × sparse
     val y_csr_sparse = LinearAlgebraAPI
       .spmv(A, xSparse, useCSR = true)
       .values.collect().toMap
 
-    // COO × dense
     val y_coo_dense = LinearAlgebraAPI
       .spmv(A, xDense, useCSR = false)(sc)
       .values.collect().toMap
 
-    // CSR × dense
     val y_csr_dense = LinearAlgebraAPI
       .spmv(A, xDense, useCSR = true)(sc)
       .values.collect().toMap
 
-    // We allow some implementations to drop explicit zeros.
-    // So we compare over the union of all row indices, treating missing = 0.0.
+
     val allKeys =
       (y_coo_sparse.keySet ++ y_csr_sparse.keySet ++ y_coo_dense.keySet ++ y_csr_dense.keySet)
 
@@ -91,12 +81,9 @@ object FrontendTests {
       assert(approxEq(v1, v4), s"COO-sparse vs CSR-dense mismatch at row $i: $v1 vs $v4")
     }
 
-    println("✔ testSpmvSparseVsDense passed.")
+    println("testSpmvSparseVsDense passed.")
   }
 
-  // -----------------------------------------------------------
-  // 2) SpMM: COO, CSR, CSC all agree on A*B
-  // -----------------------------------------------------------
   def testSpmmFormatsAgree(sc: SparkContext): Unit = {
     println("Running testSpmmFormatsAgree...")
 
@@ -125,16 +112,12 @@ object FrontendTests {
       assert(approxEq(cooRes(k), cscRes(k)))
     }
 
-    println("✔ testSpmmFormatsAgree passed.")
+    println("testSpmmFormatsAgree passed.")
   }
 
-  // -----------------------------------------------------------
-  // 3) SpMM: Sparse × Dense vs local dense baseline
-  // -----------------------------------------------------------
   def testSpmmSparseDense(sc: SparkContext): Unit = {
     println("Running testSpmmSparseDense...")
 
-    // A: 3x3, B_dense: 3x2
     val A = SparseMatrix(sc.parallelize(Seq(
       (0, 0, 1.0),
       (0, 2, 2.0),
@@ -159,11 +142,9 @@ object FrontendTests {
       nCols = 2
     )
 
-    // frontend result
     val C = LinearAlgebraAPI.spmm(A, B_dense)
-    val C_map = C.rows.collect().toMap  // rowIndex -> Array[Double]
+    val C_map = C.rows.collect().toMap
 
-    // local dense baseline: C_local = A_local @ B_rows
     val A_local = Array(
       Array(1.0, 0.0, 2.0),
       Array(0.0, 3.0, 0.0),
@@ -202,12 +183,9 @@ object FrontendTests {
       }
     }
 
-    println("✔ testSpmmSparseDense passed.")
+    println("testSpmmSparseDense passed.")
   }
 
-  // -----------------------------------------------------------
-  // 4) CSV loader + SpMV sanity check
-  // -----------------------------------------------------------
   def testCsvLoaderSpmv(sc: SparkContext): Unit = {
     println("Running testCsvLoaderSpmv...")
 
@@ -217,23 +195,19 @@ object FrontendTests {
     val A = Loader.loadCSVToCOO(sc, matrixAPath)
     val x = Loader.loadVector(sc, vectorCsvPath)
 
-    // Just check it runs and returns finite numbers
     val y = LinearAlgebraAPI.spmv(A, x, useCSR = false)
       .values.collect()
 
     assert(y.nonEmpty)
     assert(y.forall { case (_, v) => !v.isNaN && !v.isInfinity })
 
-    println("✔ testCsvLoaderSpmv passed.")
+    println("testCsvLoaderSpmv passed.")
   }
 
-  // -----------------------------------------------------------
-  // 5) Tensor MTTKRP with a simple case (all-ones factors)
-  // -----------------------------------------------------------
+
   def testTensorMttkrpSimple(sc: SparkContext): Unit = {
     println("Running testTensorMttkrpSimple...")
 
-    // 2x2x2 tensor with simple values
     val entries: RDD[(Array[Int], Double)] = sc.parallelize(Seq(
       (Array(0,0,0), 1.0),
       (Array(0,0,1), 2.0),
@@ -242,7 +216,6 @@ object FrontendTests {
     ))
     val tensor = SparseTensor(entries, shape = Array(2,2,2))
 
-    // factor matrices full of ones: 2x2 each
     def onesMat(): DenseMatrix = {
       val rows = sc.parallelize(Seq(
         (0, Array(1.0, 1.0)),
@@ -255,11 +228,8 @@ object FrontendTests {
     val W = onesMat()
 
     val M = LinearAlgebraAPI.mttkrp(tensor, Seq(U, V, W), targetMode = 0)
-    val M_rows = M.rows.collect().toMap  // row -> Array[Double]
+    val M_rows = M.rows.collect().toMap
 
-    // With all-ones factors, each rank column r is just sum of values per mode-0 index:
-    // mode-0 index 0: entries 1,2 → sum = 3
-    // mode-0 index 1: entries 3,4 → sum = 7
     val expected = Map(
       0 -> Array(3.0, 3.0),
       1 -> Array(7.0, 7.0)
@@ -272,6 +242,6 @@ object FrontendTests {
       }
     }
 
-    println("✔ testTensorMttkrpSimple passed.")
+    println("testTensorMttkrpSimple passed.")
   }
 }

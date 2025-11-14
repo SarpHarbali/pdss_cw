@@ -8,7 +8,7 @@ import scala.collection.mutable
 
 object TensorEngine {
 
-  /** Mode-n MTTKRP using a CSF-style fiber compression. */
+
   def mttkrp(tensor: SparseTensor,
              factorMatrices: Seq[DenseMatrix],
              targetMode: Int): RDD[(Int, Array[Double])] = {

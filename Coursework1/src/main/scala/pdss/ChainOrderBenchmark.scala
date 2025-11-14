@@ -9,7 +9,7 @@ import java.io.{File, PrintWriter}
 object ChainOrderBenchmark {
 
   private def nowMs: Long = System.nanoTime() / 1000000L
-  private def dstr(d: Double): String = f"$d%.1f".replace(',', '.')
+  private def dstr(d: Double): String = f"$d%.1f"
 
   def main(args: Array[String]): Unit = {
     val threads   = 8
@@ -27,7 +27,6 @@ object ChainOrderBenchmark {
     val sc = new SparkContext(conf)
     sc.setLogLevel("ERROR")
 
-    // helpers
     def runAB_then_C(A: SparseMatrix, B: SparseMatrix, C: SparseMatrix): (Long, Long) = {
       val t0  = nowMs
       val AB  = ExecutionEngine.spmm(A, B).map { case ((i, j), v) => (i, j, v) }
@@ -65,9 +64,7 @@ object ChainOrderBenchmark {
 
       val plan = ChainPlanner.chooseOrder3(A, B, C)
 
-      println(f"\nWarm-up for density=$dens%.1f (${plan.order}) ...")
       if (plan.order == "AB_then_C") runAB_then_C(A, B, C) else runA_then_BC(A, B, C)
-      println("Warm-up done. Starting measurement...")
 
       val (chosenNnz, chosenMs, chosenOrderLabel) =
         if (plan.order == "AB_then_C") {
@@ -100,6 +97,6 @@ object ChainOrderBenchmark {
 
     writer.close()
     sc.stop()
-    println(s"\n✅ Chain-order benchmark results saved to ${outFile.getAbsolutePath}")
+    println(s"\n Chain-order benchmark results saved to ${outFile.getAbsolutePath}")
   }
 }

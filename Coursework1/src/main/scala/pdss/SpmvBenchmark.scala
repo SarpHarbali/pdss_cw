@@ -21,7 +21,6 @@ object SpmvBenchmarkFromData {
     val sc    = spark.sparkContext
     sc.setLogLevel("ERROR")
 
-    // must match the names created by DatasetGen
     val scenarios = Seq(
       (200, 0.005),
       (200, 0.010),
@@ -46,33 +45,28 @@ object SpmvBenchmarkFromData {
     println("---------------------------------------------------------------------")
 
     for ((n, dens) <- scenarios) {
-      // FIX IS HERE 👇
-      val densStr = f"$dens%1.3f".replace(',', '.')   // force dot
+      val densStr = f"$dens%1.3f"
       val matPath = s"data/spmv_${n}_${densStr}.csv"
       val vecPath = s"data/spmv_vec_${n}.csv"
 
-      // load from disk
       val coo = Loader.loadCOO(sc, matPath)
       val vec = Loader.loadVector(sc, vecPath)
       val csr = Loader.cooToCSR(coo)
 
       val nnz = coo.entries.count().toInt
 
-      // RDD COO
       val t1 = nowMs
       val y1 = pdss.engine.ExecutionEngine.spmv(coo, vec)
       y1.count()
       val t2 = nowMs
       val rddCooMs = t2 - t1
 
-      // RDD CSR
       val t3 = nowMs
       val y2 = pdss.engine.ExecutionEngine.spmvCSR(csr, vec)
       y2.count()
       val t4 = nowMs
       val rddCsrMs = t4 - t3
 
-      // DataFrame
       val dfA = coo.entries.toDF("i", "j", "vA")
       val dfX = vec.values.toDF("j", "xj")
 
@@ -85,7 +79,6 @@ object SpmvBenchmarkFromData {
       val t6 = nowMs
       val dfMs = t6 - t5
 
-      // SQL
       dfA.createOrReplaceTempView("A")
       dfX.createOrReplaceTempView("X")
 
@@ -109,7 +102,7 @@ object SpmvBenchmarkFromData {
     }
 
     writer.close()
-    println(s"\n✅ SpMV results saved to ${outFile.getAbsolutePath}")
+    println(s"\n SpMV results saved to ${outFile.getAbsolutePath}")
 
     spark.stop()
   }

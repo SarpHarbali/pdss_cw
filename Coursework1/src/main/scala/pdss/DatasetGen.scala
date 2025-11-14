@@ -33,7 +33,6 @@ object DatasetGen {
     for (n <- sizes; dens <- densities) {
       val nnz = (n.toLong * n.toLong * dens).toInt.max(1)
 
-      // Matrix A
       val rndA = new Random(42 + n + (dens * 1000).toInt)
       val entriesA = (0 until nnz).map { _ =>
         val i = rndA.nextInt(n)
@@ -41,12 +40,11 @@ object DatasetGen {
         val v = rndA.nextDouble() * 10
         (i, j, v)
       }
-      val pathA = f"$outDir/spmm_${n}_${dens}%.3f_A.csv".replace(',', '.')
+      val pathA = f"$outDir/spmm_${n}_${dens}%.3f_A.csv"
 
       writeCOO(pathA, entriesA)
-      println(s"✅ Wrote matrix $pathA with $nnz entries")
+      println(s" Wrote matrix $pathA with $nnz entries")
 
-      // Matrix B
       val rndB = new Random(84 + n + (dens * 1000).toInt)
       val entriesB = (0 until nnz).map { _ =>
         val i = rndB.nextInt(n)
@@ -54,14 +52,14 @@ object DatasetGen {
         val v = rndB.nextDouble() * 10
         (i, j, v)
       }
-      val pathB = f"$outDir/spmm_${n}_${dens}%.3f_B.csv".replace(',', '.')
+      val pathB = f"$outDir/spmm_${n}_${dens}%.3f_B.csv"
       writeCOO(pathB, entriesB)
-      println(s"✅ Wrote matrix $pathB with $nnz entries")
+      println(s" Wrote matrix $pathB with $nnz entries")
     }
 
     val chainDensities = Seq(0.1, 0.2, 0.3)
 
-    def densStr(d: Double): String = f"$d%.3f".replace(',', '.')
+    def densStr(d: Double): String = f"$d%.3f"
 
     case class MatSpec(label: String, rows: Int, cols: Int, seedBase: Int)
 
@@ -76,12 +74,11 @@ object DatasetGen {
       val cols = spec.cols
       val nnz = math.max(1, (rows.toLong * cols.toLong * dens).toInt)
 
-      // Stable random per matrix & density
       val rnd = new Random(spec.seedBase + (dens * 1000).toInt)
 
       val entries = (0 until nnz).map { _ =>
-        val i = rnd.nextInt(rows) // row index in [0, rows)
-        val j = rnd.nextInt(cols) // col index in [0, cols)
+        val i = rnd.nextInt(rows)
+        val j = rnd.nextInt(cols)
         val v = rnd.nextDouble() * 10
         (i, j, v)
       }
@@ -91,6 +88,6 @@ object DatasetGen {
 
     }
     spark.stop()
-    println(s"\n✅ All datasets written to $outDir/")
+    println(s"\n All datasets written to $outDir/")
   }
 }

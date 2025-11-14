@@ -6,14 +6,12 @@ import scala.util.Try
 
 object Loader {
 
-  /** Split on comma or tab */
   private def splitLine(line: String): Array[String] =
     line.split("[,\\t]")
 
   private def isInt(s: String): Boolean = Try(s.toInt).isSuccess
   private def isDouble(s: String): Boolean = Try(s.toDouble).isSuccess
 
-  /** Load COO format from CSV/TSV: i,j,v */
   def loadCOO(sc: SparkContext, path: String): SparseMatrix = {
     val parsed = sc.textFile(path)
       .map(_.trim)
@@ -52,7 +50,6 @@ object Loader {
     SparseMatrix(cooTriples, nRows = nRows, nCols = nCols)
   }
 
-  /** index,value */
   def loadVector(sc: SparkContext, path: String): DistVector = {
     val parsed = sc.textFile(path)
       .map(_.trim)
@@ -67,13 +64,12 @@ object Loader {
     DistVector(parsed, length = len)
   }
 
-  /** Convert COO (SparseMatrix) to CSRMatrix (row-grouped) */
   def cooToCSR(m: SparseMatrix): CSRMatrix = {
     val rows = m.entries
-      .groupBy(_._1) // group by row i
+      .groupBy(_._1)
       .map { case (i, triples) =>
         val arr = triples.map { case (_, j, v) => (j, v) }.toArray
-        val sorted = arr.sortBy(_._1) // nicer to keep cols ordered
+        val sorted = arr.sortBy(_._1)
         val colIdx = sorted.map(_._1)
         val values = sorted.map(_._2)
         CSRRow(i, colIdx, values)
@@ -82,14 +78,12 @@ object Loader {
     CSRMatrix(rows, m.nRows, m.nCols)
   }
 
-    /** Convert COO (i,j,v) to CSC (col-grouped) */
   def cooToCSC(m: SparseMatrix): CSCMatrix = {
     val cols = m.entries
-      .groupBy(_._2) // group by column j
+      .groupBy(_._2)
       .map { case (j, triples) =>
-        // triples: Iterable[(i, j, v)]
         val arr = triples.map { case (i, _, v) => (i, v) }.toArray
-        val sorted = arr.sortBy(_._1) // sort by row
+        val sorted = arr.sortBy(_._1)
         val rowIdx = sorted.map(_._1)
         val values = sorted.map(_._2)
         CSCCol(j, rowIdx, values)
